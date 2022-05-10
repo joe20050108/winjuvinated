@@ -1,0 +1,110 @@
+// Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
+.intrinsicFluentColors(@theme) {
+    // Primary theme colors
+    .button(light) {
+        @buttonBackground: #fbfbfb;
+        @buttonColor: #1b1b1b;
+        @buttonBorder: #e5e5e5;
+        //Hover colors
+        @buttonBackgroundHover: #f6f6f6;
+        @buttonColorHover: #1a1a1a;
+        //active colors
+        @buttonBackgroundActive: #f5f5f5;
+        @buttonColorActive: #5d5d5d;
+        //disabled colors
+        @buttonBackgroundDisabled: #f5f5f5;
+        @buttonColorDisabled: #9d9d9d;
+    }
+
+    .button(dark) {
+        @buttonBackground: #2d2d2d;
+        @buttonColor: #ffffff;
+        @buttonBorder: #303030;
+        //Hover colors
+        @buttonBackgroundHover: #323232;
+        @buttonColorHover: @buttonColor;
+        //active colors
+        @buttonBackgroundActive: #272727;
+        @buttonColorActive: #cecece;
+        //disabled colors
+        @buttonBackgroundDisabled: #2a2a2a;
+        @buttonColorDisabled: #787878;
+    }
+    .button(@theme);
+
+    .dropdown(light) {
+        //default(sorta semi-selected)
+        @selectBackground: #fbfbfb;
+        @selectColor: #1b1b1b;
+        @selectBorder: #e5e5e5;
+        //hover
+        @selectBackgroundHover: #f6f6f6;
+        @selectColorHover: #1a1a1a;
+        //active
+        @selectBackgroundActive: #f5f5f5;
+        @selectColorActive: #5d5d5d;
+        //disabled
+        @selectBackgroundDisabled: #f5f5f5;
+        @selectColorDisabled: #9d9d9d;
+    }
+    .dropdown(dark) {
+        //default(sorta semi-selected)
+        @selectBackground: #2d2d2d;
+        @selectColor: #ffffff;
+        @selectBorder: #303030;
+        //hover
+        @selectBackgroundHover: #323232;
+        @selectColorHover: #ffffff;
+        //active
+        @selectBackgroundActive: #272727;
+        @selectColorActive: #cecece;
+        //disabled
+        @selectBackgroundDisabled: #2a2a2a;
+        @selectColorDisabled: #787878;
+    }
+    .dropdown(@theme);
+}
+
+.fluentcheckbox(@theme) {
+    .fluentcheckbox(light) {
+        //default
+        @background: #ededed;
+        @color: #1a1a1a;
+        @border: #858585;
+        //hover
+        @backgroundHover: #e5e5e5;
+        @colorHover: #1a1a1a;
+        @borderHover: #848484;
+        //active
+        @backgroundActive: #dcdcdc;
+        @colorActive: #1a1a1a;
+        @borderActive: #bababa;
+        //checked(only color changes, border and background handled by WinJS and accent)
+        @colorChecked: #ffffff;
+        //disabled
+        @backgroundDisabled: #f3f3f3;
+        @colorDisabled: #9b9b9b;
+        @borderDisabled: #bfbfbf;
+    }
+    .fluentcheckbox(dark) {
+        //default
+        @background: #1d1d1d;
+        @color: #ffffff;
+        @border: #999999;
+        //hover
+        @backgroundHover: #2a2a2a;
+        @colorHover: #ffffff;
+        @borderHover: #9b9b9b;
+        //active
+        @backgroundActive: #303030;
+        @colorActive: #ffffff;
+        @borderActive: #464646;
+        //checked(only color changes, border and background handled by WinJS and accent)
+        @colorChecked: #050407;
+        //disabled
+        @backgroundDisabled: #202020;
+        @colorDisabled: #717171;
+        @borderDisabled: #434343;
+    }
+    .fluentcheckbox(@theme);
+}

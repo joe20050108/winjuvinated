@@ -1,18 +1,22 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
-
+@import "colors-splitview-fluent.less";
 #win-splitviewpanetoggle {
     .variableDefs(@theme) when not (@theme = highcontrast) {
         .colorDefinitions(@theme);
+        //fluent colors required
+        .splitviewpanetoggleFluentColors(@theme);
         
-        @color: @baseHigh;
-        @colorHover: @baseHigh;
-        @colorActive: @baseHigh;
-        @colorDisabled: @baseLow;
+
+        //this code is microsoft's but it makes my day a whole lot easier.
+        @color: @toggleColor;
+        @colorHover: @toggleColorHover;
+        @colorActive: @toggleColorActive;
+        @colorDisabled: @toggleColorDisabled;
         
-        @backgroundColor: transparent;
-        @backgroundColorHover: @listHover;
-        @backgroundColorActive: @listPress;
-        @backgroundColorDisabled: transparent;
+        @backgroundColor: @toggleBackground;
+        @backgroundColorHover: @toggleBackgroundHover;
+        @backgroundColorActive: @toggleBackgroundActive;
+        @backgroundColorDisabled: @toggleBackgroundDisabled;
         
         @borderColorKeyboardFocus: @baseHigh;
     }

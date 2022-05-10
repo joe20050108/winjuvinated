@@ -1,23 +1,30 @@
 ﻿// Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
+@import "colors-backbutton-fluent.less";
 .Colors(@theme) {
     .colorDefinitions(@theme);
+    //fluent UI definitions(manual colors now instead of fades sadly)
+    .backbuttonFluentColors(@theme);
 
     .win-backbutton,
     .win-back,
     .win-navigation-backbutton {
-        background-color: transparent;
-        border: none;
-        color: @baseHigh;
+        background-color: @buttonBackground;
+        border: 1px solid;
+        border-color: @buttonBorder;
+        border-radius: 6px;
+        color: @buttonColor;
     }
 
     .win-backbutton:hover,
     .win-navigation-backbutton:hover .win-back {
-        background-color: @listHover;
+        background-color: @buttonBackgroundHover;
+        color: @buttonColorHover;
     }
 
     .win-backbutton:active,
     .win-navigation-backbutton:active .win-back {
-        background-color: @listPress;
+        background-color: @buttonBackgroundActive;
+        color: @buttonColorActive;
     }
 
     .win-backbutton:disabled,
@@ -25,8 +32,8 @@
     .win-navigation-backbutton:disabled,
     .win-navigation-backbutton:disabled .win-back,
     .win-navigation-backbutton:disabled:active .win-back {
-        color: @baseMediumMid;
-        background-color: transparent;
+        color: @buttonColorDisabled;
+        background-color: @buttonBackgroundDisabled;
     }
 
     .win-backbutton:focus,

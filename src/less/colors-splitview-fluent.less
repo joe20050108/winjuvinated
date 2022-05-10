@@ -1,0 +1,78 @@
+// Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
+.splitviewFluentColors(@theme) {
+    .splitview(light) {
+        @background: #f3f3f3;
+    }
+    .splitview(dark) {
+        @background: #202020;
+    }
+    .splitview(@theme);
+}
+
+.splitviewpanetoggleFluentColors(@theme) {
+    .splitviewpanetoggle(light) {
+        //default
+        @toggleBackground: #f3f3f3;
+        @toggleColor: #353535;
+        @toggleBorder: transparent;
+        //hover
+        @toggleBackgroundHover: #eaeaea;
+        @toggleColorHover: #333333;
+        //active
+        @toggleBackgroundActive: #ededed;
+        @toggleColorActive: #6d6d6d;
+        //disabled
+        @toggleBackgroundDisabled: #f5f5f5;
+        @toggleColorDisabled: #353535;
+    }
+    .splitviewpanetoggle(dark) {
+        //default
+        @toggleBackground: #202020;
+        @toggleColor: #e3e3e3;
+        @toggleBorder: transparent;
+        //hover
+        @toggleBackgroundHover: #2d2d2d;
+        @toggleColorHover: #e5e5e5;
+        //active
+        @toggleBackgroundActive: #292929;
+        @toggleColorActive: #bababa;
+        //disabled
+        @toggleBackgroundDisabled: #2a2a2a;
+        @toggleColorDisabled: #e4e4e4;
+    }
+    .splitviewpanetoggle(@theme);
+}
+
+.splitviewcommandFluentColors(@theme) {
+    .splitviewcommand(light) {
+        //default
+        @background: #f3f3f3;
+        @color: #1a1a1a;
+        @border: transparent;
+        //hover(also shared with "selected"(unused))
+        @backgroundHover: #eaeaea;
+        @colorHover: #191919;
+        //active
+        @backgroundActive: #ededed;
+        @colorActive: #5a5a5a;
+        //disabled
+        @backgroundDisabled: #f3f3f3;
+        @colorDisabled: #b2b2b2;
+    }
+    .splitviewcommand(dark) {
+        //default
+        @background: #202020;
+        @color: #ffffff;
+        @border: transparent;
+        //hover(shared with selected(which is unused))
+        @backgroundHover: #2d2d2d;
+        @colorHover: #ffffff;
+        //active
+        @backgroundActive: #292929;
+        @colorActive: #cecece;
+        //disabled
+        @backgroundDisabled: #202020;
+        @colorDisabled: #626262;
+    }
+    .splitviewcommand(@theme);
+}

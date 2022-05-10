@@ -1,10 +1,12 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
-
+@import "colors-splitview-fluent.less";
 #win-splitview {
     .variableDefs(@theme) when not (@theme = highcontrast) {
         .colorDefinitions(@theme);
+        //fluent colors(now required, not optional)(ITS ALWAYS BEEN THAT WAY!!)
+        .splitviewFluentColors(@theme);
         
-        @paneBackgroundColor: @chromeLow;
+        @paneBackgroundColor: @background;
     }
     
     .variableDefs(highcontrast) {
