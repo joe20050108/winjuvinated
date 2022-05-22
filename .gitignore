@@ -3,6 +3,7 @@ node_modules/
 bld/
 dist/
 repos/
+LanguageConverter/
 
 *.orig
 *.suo

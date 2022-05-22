@@ -1,6 +1,11 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
+@import "button-theme-resources.less";
 .Colors(@theme) {
     .colorDefinitions(@theme);
+
+    //WinUI
+    //currently used for: win-button
+    .themeResources(@theme);
 
     //
     // Body
@@ -162,9 +167,9 @@
     // Push button
     //
     .win-button {
-        color: @baseHigh;
-        background-color: @baseLow;
-        border-color: transparent;
+        color: @ButtonForeground;
+        background-color: @ButtonBackground;
+        border-color: @ButtonBorderBrush;
 
         &.win-button-primary {
             color: #fff;
@@ -172,19 +177,23 @@
 
         &:hover,
         &.win-button-primary:hover {
-            border-color: @baseMediumMid;
+            color: @ButtonForegroundPointerOver;
+            border-color: @ButtonBorderBrushPointerOver;
+            background-color: @ButtonBackgroundPointerOver;
         }
 
         &:active,
         &.win-button-primary:active {
-            background-color: @baseMediumMid;
+            background-color: @ButtonBackgroundPressed;
+            color: @ButtonForegroundPressed;
+            border-color: @ButtonBorderBrushPressed;
         }
 
         &:disabled,
         &.win-button-primary:disabled {
-            color: @baseLow;
-            background-color: @baseLow;
-            border-color: transparent;
+            color: @ButtonForegroundDisabled;
+            background-color: @ButtonBackgroundDisabled;
+            border-color: @ButtonBorderBrushDisabled;
         }
     }
 

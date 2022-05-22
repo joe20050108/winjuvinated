@@ -1,0 +1,44 @@
+//Copyright Microsoft Corporation
+@import "common-theme-resources.less";
+
+.themeResources(@theme) {
+	.commonThemeResources(@theme);
+
+	.mixin(light) {
+		@ButtonBackground: @ControlFillColorDefaultBrush;
+		@ButtonBackgroundPointerOver: @ControlFillColorSecondaryBrush;
+		@ButtonBackgroundPressed: @ControlFillColorTertiaryBrush;
+		@ButtonBackgroundDisabled: @ControlFillColorDisabledBrush;
+		@ButtonForeground: @TextFillColorPrimaryBrush;
+		@ButtonForegroundPointerOver: @TextFillColorPrimaryBrush;
+		@ButtonForegroundPressed: @TextFillColorSecondaryBrush;
+		@ButtonForegroundDisabled: @TextFillColorDisabledBrush;
+        /*
+		@ButtonBorderBrush: @ControlElevationBorderBrush;
+		@ButtonBorderBrushPointerOver: @ControlElevationBorderBrush;*/
+        @ButtonBorderBrush: @ControlStrokeColorDefaultBrush;
+		@ButtonBorderBrushPointerOver: @ControlStrokeColorDefaultBrush;
+		@ButtonBorderBrushPressed: @ControlStrokeColorDefaultBrush;
+		@ButtonBorderBrushDisabled: @ControlStrokeColorDefaultBrush;
+	}
+
+	.mixin(dark) {
+		@ButtonBackground: @ControlFillColorDefaultBrush;
+		@ButtonBackgroundPointerOver: @ControlFillColorSecondaryBrush;
+		@ButtonBackgroundPressed: @ControlFillColorTertiaryBrush;
+		@ButtonBackgroundDisabled: @ControlFillColorDisabledBrush;
+		@ButtonForeground: @TextFillColorPrimaryBrush;
+		@ButtonForegroundPointerOver: @TextFillColorPrimaryBrush;
+		@ButtonForegroundPressed: @TextFillColorSecondaryBrush;
+		@ButtonForegroundDisabled: @TextFillColorDisabledBrush;
+        /*
+		@ButtonBorderBrush: @ControlElevationBorderBrush;
+		@ButtonBorderBrushPointerOver: @ControlElevationBorderBrush;*/
+        @ButtonBorderBrush: @ControlStrokeColorDefaultBrush;
+		@ButtonBorderBrushPointerOver: @ControlStrokeColorDefaultBrush;
+		@ButtonBorderBrushPressed: @ControlStrokeColorDefaultBrush;
+		@ButtonBorderBrushDisabled: @ControlStrokeColorDefaultBrush;
+	}
+
+    .mixin(@theme);
+}
