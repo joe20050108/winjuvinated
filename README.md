@@ -7,6 +7,15 @@ Windows Library for JavaScript (WinJS)
 # Status
 Goal: Redesign WinJS to have more of a Fluent style look.(WinUI Essentially)
 
+# Example
+WinUI button partially integrated into WinJS.
+At the time of these screenshots being taken, the button's colors have been updated, but their design is still the legacy UWP design.
+
+<p style="float: left;">
+ <img src="https://github.com/joe20050108/winjuvinated/blob/5825ec5a8754b7675d5264d9477236404729dcff/demonstration/dark-button.png?raw=true"/>
+ <img src="https://github.com/joe20050108/winjuvinated/blob/5825ec5a8754b7675d5264d9477236404729dcff/demonstration/light-button.png?raw=true"/>
+</p>
+
 # Intro
 WinJS is a set of JavaScript toolkits that allow developers to build applications using HTML/JS/CSS technology forged with the following principles in mind:
 
