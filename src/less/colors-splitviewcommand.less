@@ -1,21 +1,17 @@
 ﻿// Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
-@import "colors-splitview-fluent.less";
 .Colors(@theme) {
     .colorDefinitions(@theme);
-    //fluent
-    .splitviewcommandFluentColors(@theme);
 
     @splitViewCommandRest: transparent;
     @splitViewCommandHover: @listHover;
     @splitViewCommandPress: @listPress;
 
     .win-splitviewcommand-button {
-        background-color: @background;
-        color: @color;
+        background-color: @splitViewCommandRest;
+        color: @baseHigh;
 
         &.win-pressed {
-            background-color: @backgroundActive;
-            color: @colorActive;
+            background-color: @splitViewCommandPress;
         }
     }
 
@@ -35,11 +31,10 @@
     .colorDefinitions(@theme);
 
     .win-splitviewcommand-button:hover {
-        background-color: @backgroundHover;
-        color: @colorHover;
+        background-color: @splitViewCommandHover;
 
         &.win-pressed {
-            background-color: @backgroundActive;
+            background-color: @splitViewCommandPress;
         }
     }
 }

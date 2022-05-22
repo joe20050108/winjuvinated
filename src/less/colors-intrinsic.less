@@ -1,9 +1,6 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
-@import "colors-intrinsic-fluent.less";
 .Colors(@theme) {
     .colorDefinitions(@theme);
-    //fluent
-    .intrinsicFluentColors(@theme);
 
     //
     // Body
@@ -64,50 +61,44 @@
     // Radio and Checkbox
     //
     .win-checkbox {
-        //fluent design specific to the checkbox.
-        .fluentcheckbox(@theme);
         &::-ms-check {
-            color: @color;
-            border-color: @border;
-            background-color: @background;
-            border-radius: 6px;
+            color: @baseHigh;
+            border-color: @baseMediumHigh;
+            background-color: transparent;
         }
 
-        /*&:indeterminate::-ms-check {
-            color: blue;
-        }*/
+        &:indeterminate::-ms-check {
+            color: @baseMediumHigh;
+        }
 
         &:checked::-ms-check {
-            color: @colorChecked;
+            color: #fff;
             border-color: transparent;
         }
 
         &:hover::-ms-check {
-            background-color: @backgroundHover;
-            color: @colorHover;
-            border-color: @borderHover;
+            border-color: @baseHigh;
         }
 
-        /*&:hover:indeterminate::-ms-check {
-            color: green;
-        }*/
+        &:hover:indeterminate::-ms-check {
+            color: @baseHigh;
+        }
 
         &:active::-ms-check {
-            border-color: @borderActive;
-            background-color: @backgroundActive;
-            color: @colorActive;
+            border-color: transparent;
+            background-color: @baseMid;
         }
 
-        /*&:indeterminate:active::-ms-check {
-            color: red;
+        &:indeterminate:active::-ms-check {
+            color: @baseMid;
             border-color: @baseMediumHigh;
             background-color: transparent;
-        }*/
+        }
 
         &:disabled::-ms-check, &:indeterminate:disabled::-ms-check {
-            color: @colorDisabled;
-            border-color: @borderDisabled;
-            background-color: @backgroundDisabled;
+            color: @baseLow;
+            border-color: @baseLow;
+            background-color: transparent;
         }
     }
 
@@ -171,9 +162,9 @@
     // Push button
     //
     .win-button {
-        color: @buttonColor;
-        background-color: @buttonBackground;
-        border-color: @buttonBorder;
+        color: @baseHigh;
+        background-color: @baseLow;
+        border-color: transparent;
 
         &.win-button-primary {
             color: #fff;
@@ -181,20 +172,19 @@
 
         &:hover,
         &.win-button-primary:hover {
-            background-color: @buttonBackgroundHover;
-            color: @buttonColorHover;
+            border-color: @baseMediumMid;
         }
 
         &:active,
         &.win-button-primary:active {
-            background-color: @buttonBackgroundActive;
-            color: @buttonColorActive;
+            background-color: @baseMediumMid;
         }
 
         &:disabled,
         &.win-button-primary:disabled {
-            color: @buttonColorDisabled;
-            background-color: @buttonBackgroundDisabled;
+            color: @baseLow;
+            background-color: @baseLow;
+            border-color: transparent;
         }
     }
 
@@ -202,36 +192,27 @@
     // Select
     //
     .win-dropdown {
-        //the ms-expand will need to be updated!!
-        //also border-radius on some other garbage here.
-        //including: ms-value
-        color: @selectColor;
-        background-color: @selectBackground;
-        border-color: @selectBorder;
+        color: @baseHigh;
+        background-color: @baseLow;
+        border-color: @baseMediumMid;
 
         &::-ms-expand {
-            color: @selectColorActive;
-            background-color: @selectBackgroundActive;
+            color: @baseMediumHigh;
+            background-color: transparent;
         }
 
         &:hover {
-            background-color: @selectBackgroundHover;
-            color: @selectColorHover;
-        }
-
-        //added this!
-        &:active {
-            background-color: @selectBackgroundActive;
-            color: @selectColorActive;
+            background-color: @chromeMediumMid;
+            border-color: @baseMid;
         }
 
         &:disabled {
-            color: @selectColorDisabled;
-            background-color: @selectBackgroundDisabled;
+            color: @baseLow;
+            background-color: @baseLow;
         }
         &:disabled::-ms-expand {
-            color: @selectColorDisabled;
-            border-color: @selectBackgroundDisabled;
+            color: @baseLow;
+            border-color: @baseLow;
         }
     }
 

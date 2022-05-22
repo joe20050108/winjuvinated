@@ -11,9 +11,8 @@
 
     // Primary theme colors
     .mixin(light) {
-        @altHigh: #f3f3f3;
-        @baseHigh: #1b1b1b;
-        //NOTE: just based off of WinUI3, for now we are going to manually define this stuff
+        @altHigh: rgb(255, 255, 255);
+        @baseHigh: rgb(0, 0, 0);
         @chromeHigh: #ccc;
         @chromeMid: #e6e6e6;
         @chromeMediumMid: #f2f2f2;
@@ -33,8 +32,8 @@
     }
 
     .mixin(dark) {
-        @altHigh: #202020;
-        @baseHigh: #ffffff;
+        @altHigh: rgb(0, 0, 0);
+        @baseHigh: rgb(255, 255, 255);
         @chromeHigh: #767676;
         @chromeMid: #393939;
         @chromeMediumMid: #2b2b2b;
