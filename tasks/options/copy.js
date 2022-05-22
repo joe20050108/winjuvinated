@@ -34,7 +34,7 @@
             // fonts
             expand: true,
             cwd: config.desktopOutput + "fonts",
-            src: ["Symbols.ttf"],
+            src: ["Symbols.ttf", "SegoeUISym.ttf"],
             dest: path.join(dest, "fonts")
         }, {
             // js
