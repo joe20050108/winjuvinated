@@ -1,2 +1,3 @@
 List of components that have been updated to consist with WinUI 2 and 3
 Button: Colors: YES | Style: NO
+CHeckbox: Colors: NO | Styles: NO
