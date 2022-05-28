@@ -116,6 +116,8 @@
         overflow: hidden;
         right: 0;
         left: auto;
+        //give it a margin so it looks consistent with WinUI
+        margin: 5px;
 
         .RTL({
             left: 0;
@@ -136,6 +138,9 @@
         #flex > .flex-direction(column);
         overflow-y: auto;
         overflow-x: hidden;
+        //fluent UI help
+        border-radius: 6px;
+        padding: 5px;
 
         &.win-menu {
             max-width: 480px; /* override max-width styles from WinJS.UI.Menu */

@@ -1,0 +1,12 @@
+.win-button {
+    width: 150px;
+}
+
+/* Rapid mockup */
+.win-textbox {
+    border-radius: 6px;
+    border: 1px solid;
+    border-color: grey;
+    border-bottom-color: blue;
+    border-bottom-width: 2px;
+}
