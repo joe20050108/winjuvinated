@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Basic Demonstration</title>
+        <link rel="stylesheet" href="Microsoft.WinJS.4.4/css/ui-dark.css">
+        <script src="Microsoft.WinJS.4.4/js/base.js"></script>
+        <script src="Microsoft.WinJS.4.4/js/ui.js"></script>
+        <link rel="stylesheet" href="style.css">
+        <script>
+            WinJS.UI.processAll();
+        </script>
+    </head>
+    <body class="win-type-body">
+        <div style="margin: 5px; grid-column-start: 1; grid-column-end: 3; display: grid;">
+            Inputs
+            <button class="win-button">Button</button>
+            <button class="win-button win-button-primary">Primary Button</button>
+            <input type="range" class="win-slider">
+            <label class="win-label">
+                <input type="checkbox" class="win-checkbox">
+                Checkbox
+            </label>
+            RAPID MOCKUP --MAY NOT BE CONISTENT--
+            <input type="text" class="win-textbox" value="Input Text Here">
+            <input type="search" class="win-textbox" value="Search">
+        </div>
+        <div data-win-control="WinJS.UI.SearchBox" data-win-options="{value:'Search'}"></div>
+
+        
+        <div data-win-control="WinJS.UI.AppBar">
+            <button data-win-control="WinJS.UI.AppBarCommand"
+            data-win-options="{id:'secondary1',
+            type:'button',
+            label:'Secondary1',
+            section:'secondary'}"></button>
+    <div data-win-control="WinJS.UI.AppBarCommand"
+         data-win-options="{ id: 'list',
+         type: 'content',
+         label:'List',
+         section: 'secondary'}">
+        <select class="options">
+            <option>Option1</option>
+            <option>Option2</option>
+            <option>Option3</option>
+            <option>Option4</option>
+        </select>
+    </div>
+    <div data-win-control="WinJS.UI.AppBarCommand"
+         data-win-options="{ id: 'textfield',
+         type: 'content',
+         label:'Text field',
+         section: 'secondary' }">
+        <input type="text" value="Text" />
+    </div>
+    <button data-win-control="WinJS.UI.AppBarCommand"
+            data-win-options="{id:'flyoutButton',
+            type:'flyout',
+            label:'Flyout',
+            icon:'openpane',
+            section: 'secondary',
+            flyout:select('#exampleFlyout')}"></button>
+    <button data-win-control="WinJS.UI.AppBarCommand"
+            data-win-options="{id:'cmdToggle',
+            type:'toggle',
+            label:'Toggle',
+            icon:'audio',
+            section:'primary',
+            tooltip:'Toggle'}"></button>
+    <hr data-win-control="WinJS.UI.AppBarCommand"
+        data-win-options="{id:'separator',
+        type:'separator',
+        section:'primary'}" />
+    <button data-win-control="WinJS.UI.AppBarCommand"
+            data-win-options="{id:'helpButton',
+            type: 'button',
+            label:'Help',
+            tooltip:'Help',
+            icon:'help',
+            section:'primary'
+            }"></button>
+        </div>
+    </body>
+</html>
