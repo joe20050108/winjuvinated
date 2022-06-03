@@ -4,6 +4,8 @@ bld/
 dist/
 repos/
 LanguageConverter/
+xhml/
+microsoft-ui-xaml-main/
 
 *.orig
 *.suo

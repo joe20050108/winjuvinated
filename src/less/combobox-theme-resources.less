@@ -1,0 +1,135 @@
+@import "common-theme-resources.less";
+
+.themeResources(@theme) {
+	.commonThemeResources(@theme);
+
+	.mixin(light) {
+		@ComboBoxItemForeground: @TextFillColorPrimaryBrush;
+		@ComboBoxItemForegroundPressed: @TextFillColorSecondaryBrush;
+		@ComboBoxItemForegroundPointerOver: @TextFillColorPrimaryBrush;
+		@ComboBoxItemForegroundDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxItemForegroundSelected: @TextFillColorPrimaryBrush;
+		@ComboBoxItemForegroundSelectedUnfocused: @TextFillColorPrimaryBrush;
+		@ComboBoxItemForegroundSelectedPressed: @TextFillColorSecondaryBrush;
+		@ComboBoxItemForegroundSelectedPointerOver: @TextFillColorPrimaryBrush;
+		@ComboBoxItemForegroundSelectedDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxItemBackground: @SubtleFillColorTransparentBrush;
+		@ComboBoxItemBackgroundPressed: @SubtleFillColorTertiaryBrush;
+		@ComboBoxItemBackgroundPointerOver: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBackgroundDisabled: @SubtleFillColorDisabledBrush;
+		@ComboBoxItemBackgroundSelected: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBackgroundSelectedUnfocused: @SubtleFillColorTertiaryBrush;
+		@ComboBoxItemBackgroundSelectedPressed: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBackgroundSelectedPointerOver: @SubtleFillColorTertiaryBrush;
+		@ComboBoxItemBackgroundSelectedDisabled: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBorderBrush: @SubtleFillColorTransparentBrush;
+		@ComboBoxItemBorderBrushPressed: @SubtleFillColorTertiaryBrush;
+		@ComboBoxItemBorderBrushPointerOver: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBorderBrushDisabled: @SubtleFillColorDisabledBrush;
+		@ComboBoxItemBorderBrushSelected: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBorderBrushSelectedUnfocused: @SubtleFillColorTransparentBrush;
+		@ComboBoxItemBorderBrushSelectedPressed: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBorderBrushSelectedPointerOver: @SubtleFillColorTertiaryBrush;
+		@ComboBoxItemBorderBrushSelectedDisabled: @SubtleFillColorSecondaryBrush;
+		@ComboBoxBackground: @ControlFillColorDefaultBrush;
+		@ComboBoxBackgroundPointerOver: @ControlFillColorSecondaryBrush;
+		@ComboBoxBackgroundPressed: @ControlFillColorTertiaryBrush;
+		@ComboBoxBackgroundDisabled: @ControlFillColorDisabledBrush;
+		@ComboBoxBackgroundUnfocused: @ControlFillColorDefaultBrush;
+		@ComboBoxBackgroundFocused: @ControlFillColorDefaultBrush;
+		@ComboBoxBackgroundBorderBrushFocused: @FocusStrokeColorOuterBrush;
+		@ComboBoxBackgroundBorderBrushUnfocused: @ControlStrokeColorDefaultBrush;
+		@ComboBoxForeground: @TextFillColorPrimaryBrush;
+		@ComboBoxForegroundPointerOver: @TextFillColorPrimaryBrush;
+		@ComboBoxForegroundPressed: @TextFillColorSecondaryBrush;
+		@ComboBoxForegroundDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxForegroundFocused: @TextFillColorPrimaryBrush;
+		@ComboBoxForegroundFocusedPressed: @TextFillColorPrimaryBrush;
+		@ComboBoxHeaderForeground: @TextFillColorPrimaryBrush;
+		@ComboBoxHeaderForegroundDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxPlaceHolderForeground: @TextFillColorSecondaryBrush;
+		@ComboBoxPlaceHolderForegroundPointerOver: @TextFillColorSecondaryBrush;
+		@ComboBoxPlaceHolderForegroundPressed: @TextFillColorTertiaryBrush;
+		@ComboBoxPlaceHolderForegroundDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxPlaceHolderForegroundFocused: @TextFillColorSecondaryBrush;
+		@ComboBoxPlaceHolderForegroundFocusedPressed: @TextFillColorSecondaryBrush;
+		/*@ComboBoxBorderBrush: @ControlElevationBorderBrush;
+		@ComboBoxBorderBrushPointerOver: @ControlElevationBorderBrush;*/
+
+        @ComboBoxBorderBrush: @ControlStrokeColorDefaultBrush;
+		@ComboBoxBorderBrushPointerOver: @ControlStrokeColorDefaultBrush;
+		@ComboBoxBorderBrushPressed: @ControlStrokeColorDefaultBrush;
+		@ComboBoxBorderBrushDisabled: @ControlStrokeColorDefaultBrush;
+
+		@ComboBoxDropDownGlyphForeground: @TextFillColorSecondaryBrush;
+		@ComboBoxDropDownGlyphForegroundDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxDropDownGlyphForegroundFocused: @TextFillColorSecondaryBrush;
+		@ComboBoxDropDownForeground: @TextFillColorPrimaryBrush;
+	}
+
+	.mixin(dark) {
+		@ComboBoxItemForeground: @TextFillColorPrimaryBrush;
+		@ComboBoxItemForegroundPressed: @TextFillColorSecondaryBrush;
+		@ComboBoxItemForegroundPointerOver: @TextFillColorPrimaryBrush;
+		@ComboBoxItemForegroundDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxItemForegroundSelected: @TextFillColorPrimaryBrush;
+		@ComboBoxItemForegroundSelectedUnfocused: @TextFillColorPrimaryBrush;
+		@ComboBoxItemForegroundSelectedPressed: @TextFillColorSecondaryBrush;
+		@ComboBoxItemForegroundSelectedPointerOver: @TextFillColorPrimaryBrush;
+		@ComboBoxItemForegroundSelectedDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxItemBackground: @SubtleFillColorTransparentBrush;
+		@ComboBoxItemBackgroundPressed: @SubtleFillColorTertiaryBrush;
+		@ComboBoxItemBackgroundPointerOver: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBackgroundDisabled: @SubtleFillColorDisabledBrush;
+		@ComboBoxItemBackgroundSelected: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBackgroundSelectedUnfocused: @SubtleFillColorTertiaryBrush;
+		@ComboBoxItemBackgroundSelectedPressed: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBackgroundSelectedPointerOver: @SubtleFillColorTertiaryBrush;
+		@ComboBoxItemBackgroundSelectedDisabled: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBorderBrush: @SubtleFillColorTransparentBrush;
+		@ComboBoxItemBorderBrushPressed: @SubtleFillColorTertiaryBrush;
+		@ComboBoxItemBorderBrushPointerOver: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBorderBrushDisabled: @SubtleFillColorDisabledBrush;
+		@ComboBoxItemBorderBrushSelected: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBorderBrushSelectedUnfocused: @SubtleFillColorTransparentBrush;
+		@ComboBoxItemBorderBrushSelectedPressed: @SubtleFillColorSecondaryBrush;
+		@ComboBoxItemBorderBrushSelectedPointerOver: @SubtleFillColorTertiaryBrush;
+		@ComboBoxItemBorderBrushSelectedDisabled: @SubtleFillColorSecondaryBrush;
+		@ComboBoxBackground: @ControlFillColorDefaultBrush;
+		@ComboBoxBackgroundPointerOver: @ControlFillColorSecondaryBrush;
+		@ComboBoxBackgroundPressed: @ControlFillColorTertiaryBrush;
+		@ComboBoxBackgroundDisabled: @ControlFillColorDisabledBrush;
+		@ComboBoxBackgroundUnfocused: @ControlFillColorDefaultBrush;
+		@ComboBoxBackgroundFocused: @ControlFillColorDefaultBrush;
+		@ComboBoxBackgroundBorderBrushFocused: @FocusStrokeColorOuterBrush;
+		@ComboBoxBackgroundBorderBrushUnfocused: @ControlStrokeColorDefaultBrush;
+		@ComboBoxForeground: @TextFillColorPrimaryBrush;
+		@ComboBoxForegroundPointerOver: @TextFillColorPrimaryBrush;
+		@ComboBoxForegroundPressed: @TextFillColorSecondaryBrush;
+		@ComboBoxForegroundDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxForegroundFocused: @TextFillColorPrimaryBrush;
+		@ComboBoxForegroundFocusedPressed: @TextFillColorPrimaryBrush;
+		@ComboBoxHeaderForeground: @TextFillColorPrimaryBrush;
+		@ComboBoxHeaderForegroundDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxPlaceHolderForeground: @TextFillColorSecondaryBrush;
+		@ComboBoxPlaceHolderForegroundPointerOver: @TextFillColorSecondaryBrush;
+		@ComboBoxPlaceHolderForegroundPressed: @TextFillColorTertiaryBrush;
+		@ComboBoxPlaceHolderForegroundDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxPlaceHolderForegroundFocused: @TextFillColorSecondaryBrush;
+		@ComboBoxPlaceHolderForegroundFocusedPressed: @TextFillColorSecondaryBrush;
+		/*@ComboBoxBorderBrush: @ControlElevationBorderBrush;
+		@ComboBoxBorderBrushPointerOver: @ControlElevationBorderBrush;*/
+
+        @ComboBoxBorderBrush: @ControlStrokeColorDefaultBrush;
+		@ComboBoxBorderBrushPointerOver: @ControlStrokeColorDefaultBrush;
+		@ComboBoxBorderBrushPressed: @ControlStrokeColorDefaultBrush;
+		@ComboBoxBorderBrushDisabled: @ControlStrokeColorDefaultBrush;
+
+		@ComboBoxDropDownGlyphForeground: @TextFillColorSecondaryBrush;
+		@ComboBoxDropDownGlyphForegroundDisabled: @TextFillColorDisabledBrush;
+		@ComboBoxDropDownGlyphForegroundFocused: @TextFillColorSecondaryBrush;
+		@ComboBoxDropDownForeground: @TextFillColorPrimaryBrush;
+	}
+
+	.mixin(@theme);
+}

@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
 @import "button-theme-resources.less";
+@import "combobox-theme-resources.less";
 .Colors(@theme) {
     .colorDefinitions(@theme);
 
@@ -201,27 +202,36 @@
     // Select
     //
     .win-dropdown {
-        color: @baseHigh;
-        background-color: @baseLow;
-        border-color: @baseMediumMid;
+        color: @ComboBoxForeground;
+        background-color: @ComboBoxBackground;
+        border-color: @ComboBoxBorderBrush;
 
+        &:active {
+            background-color: @ComboBoxBackgroundPressed;
+            color: @ComboBoxForegroundPressed;
+            border-color: @ComboBoxBorderBrushPressed;
+        }
         &::-ms-expand {
-            color: @baseMediumHigh;
-            background-color: transparent;
+            background-color: @ComboBoxBackgroundPressed;
+            color: @ComboBoxForegroundPressed;
+            border-color: @ComboBoxBorderBrushPressed;
         }
 
         &:hover {
-            background-color: @chromeMediumMid;
-            border-color: @baseMid;
+            background-color: @ComboBoxBackgroundPointerOver;
+            border-color: @ComboBoxBorderBrushPointerOver;
+            color: @ComboBoxForegroundPointerOver;
         }
 
         &:disabled {
-            color: @baseLow;
-            background-color: @baseLow;
+            color: @ComboBoxForegroundDisabled;
+            background-color: @ComboBoxBackgroundDisabled;
+            border-color: @ComboBoxBorderBrushDisabled;
         }
         &:disabled::-ms-expand {
-            color: @baseLow;
-            border-color: @baseLow;
+            color: @ComboBoxForegroundDisabled;
+            background-color: @ComboBoxBackgroundDisabled;
+            border-color: @ComboBoxBorderBrushDisabled;
         }
     }
 

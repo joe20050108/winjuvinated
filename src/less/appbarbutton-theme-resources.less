@@ -1,0 +1,91 @@
+@import "common-theme-resources.less";
+
+.themeResources(@theme) {
+	.commonThemeResources(@theme);
+
+	.mixin(light) {
+		@AppBarButtonBackground: @SubtleFillColorTransparentBrush;
+		@AppBarButtonBackgroundPointerOver: @SubtleFillColorSecondaryBrush;
+		@AppBarButtonBackgroundPressed: @SubtleFillColorTertiaryBrush;
+		@AppBarButtonBackgroundDisabled: @SubtleFillColorDisabledBrush;
+		@AppBarButtonForeground: @TextFillColorPrimaryBrush;
+		@AppBarButtonForegroundPointerOver: @TextFillColorPrimaryBrush;
+		@AppBarButtonForegroundPressed: @TextFillColorSecondaryBrush;
+		@AppBarButtonForegroundDisabled: @TextFillColorDisabledBrush;
+		@AppBarButtonBorderBrush: @ControlFillColorTransparentBrush;
+		@AppBarButtonBorderBrushPointerOver: @ControlFillColorTransparentBrush;
+		@AppBarButtonBorderBrushPressed: @ControlFillColorTransparentBrush;
+		@AppBarButtonBorderBrushDisabled: @ControlFillColorTransparentBrush;
+		@AppBarButtonKeyboardAcceleratorTextForeground: @TextFillColorSecondaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundPointerOver: @TextFillColorSecondaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundPressed: @TextFillColorTertiaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundDisabled: @TextFillColorDisabledBrush;
+		@AppBarButtonBackgroundSubMenuOpened: @SubtleFillColorSecondaryBrush;
+		@AppBarButtonForegroundSubMenuOpened: @TextFillColorPrimaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundSubMenuOpened: @TextFillColorSecondaryBrush;
+		@AppBarButtonBorderBrushSubMenuOpened: @ControlFillColorTransparentBrush;
+		@AppBarButtonSubItemChevronForeground: @TextFillColorSecondaryBrush;
+		@AppBarButtonSubItemChevronForegroundPointerOver: @TextFillColorSecondaryBrush;
+		@AppBarButtonSubItemChevronForegroundPressed: @TextFillColorTertiaryBrush;
+		@AppBarButtonSubItemChevronForegroundSubMenuOpened: @TextFillColorSecondaryBrush;
+		@AppBarButtonSubItemChevronForegroundDisabled: @TextFillColorDisabledBrush;
+	}
+
+	.mixin(dark) {
+		@AppBarButtonBackground: @SubtleFillColorTransparentBrush;
+		@AppBarButtonBackgroundPointerOver: @SubtleFillColorSecondaryBrush;
+		@AppBarButtonBackgroundPressed: @SubtleFillColorTertiaryBrush;
+		@AppBarButtonBackgroundDisabled: @SubtleFillColorDisabledBrush;
+		@AppBarButtonForeground: @TextFillColorPrimaryBrush;
+		@AppBarButtonForegroundPointerOver: @TextFillColorPrimaryBrush;
+		@AppBarButtonForegroundPressed: @TextFillColorSecondaryBrush;
+		@AppBarButtonForegroundDisabled: @TextFillColorDisabledBrush;
+		@AppBarButtonBorderBrush: @ControlFillColorTransparentBrush;
+		@AppBarButtonBorderBrushPointerOver: @ControlFillColorTransparentBrush;
+		@AppBarButtonBorderBrushPressed: @ControlFillColorTransparentBrush;
+		@AppBarButtonBorderBrushDisabled: @ControlFillColorTransparentBrush;
+		@AppBarButtonKeyboardAcceleratorTextForeground: @TextFillColorSecondaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundPointerOver: @TextFillColorSecondaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundPressed: @TextFillColorTertiaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundDisabled: @TextFillColorDisabledBrush;
+		@AppBarButtonBackgroundSubMenuOpened: @SubtleFillColorSecondaryBrush;
+		@AppBarButtonForegroundSubMenuOpened: @TextFillColorPrimaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundSubMenuOpened: @TextFillColorSecondaryBrush;
+		@AppBarButtonBorderBrushSubMenuOpened: @ControlFillColorTransparentBrush;
+		@AppBarButtonSubItemChevronForeground: @TextFillColorSecondaryBrush;
+		@AppBarButtonSubItemChevronForegroundPointerOver: @TextFillColorSecondaryBrush;
+		@AppBarButtonSubItemChevronForegroundPressed: @TextFillColorTertiaryBrush;
+		@AppBarButtonSubItemChevronForegroundSubMenuOpened: @TextFillColorSecondaryBrush;
+		@AppBarButtonSubItemChevronForegroundDisabled: @TextFillColorDisabledBrush;
+	}
+
+	.mixin(highcontrast) {
+		@AppBarButtonBackground: @SubtleFillColorTransparentBrush;
+		@AppBarButtonBackgroundPointerOver: @SubtleFillColorSecondaryBrush;
+		@AppBarButtonBackgroundPressed: @SubtleFillColorTertiaryBrush;
+		@AppBarButtonBackgroundDisabled: @SubtleFillColorDisabledBrush;
+		@AppBarButtonForeground: @TextFillColorPrimaryBrush;
+		@AppBarButtonForegroundPointerOver: @TextFillColorPrimaryBrush;
+		@AppBarButtonForegroundPressed: @TextFillColorSecondaryBrush;
+		@AppBarButtonForegroundDisabled: @TextFillColorDisabledBrush;
+		@AppBarButtonBorderBrush: @ControlFillColorTransparentBrush;
+		@AppBarButtonBorderBrushPointerOver: @ControlFillColorTransparentBrush;
+		@AppBarButtonBorderBrushPressed: @ControlFillColorTransparentBrush;
+		@AppBarButtonBorderBrushDisabled: @ControlFillColorTransparentBrush;
+		@AppBarButtonKeyboardAcceleratorTextForeground: @TextFillColorSecondaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundPointerOver: @TextFillColorSecondaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundPressed: @TextFillColorTertiaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundDisabled: @TextFillColorDisabledBrush;
+		@AppBarButtonBackgroundSubMenuOpened: @SubtleFillColorSecondaryBrush;
+		@AppBarButtonForegroundSubMenuOpened: @TextFillColorPrimaryBrush;
+		@AppBarButtonKeyboardAcceleratorTextForegroundSubMenuOpened: @TextFillColorSecondaryBrush;
+		@AppBarButtonBorderBrushSubMenuOpened: @ControlFillColorTransparentBrush;
+		@AppBarButtonSubItemChevronForeground: @TextFillColorSecondaryBrush;
+		@AppBarButtonSubItemChevronForegroundPointerOver: @TextFillColorSecondaryBrush;
+		@AppBarButtonSubItemChevronForegroundPressed: @TextFillColorTertiaryBrush;
+		@AppBarButtonSubItemChevronForegroundSubMenuOpened: @TextFillColorSecondaryBrush;
+		@AppBarButtonSubItemChevronForegroundDisabled: @TextFillColorDisabledBrush;
+	}
+ 
+    .mixin(@theme);
+}
