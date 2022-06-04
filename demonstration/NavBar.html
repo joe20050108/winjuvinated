@@ -6,53 +6,18 @@
         <script src="../bin/Microsoft.WinJS.4.4/js/base.js"></script>
         <script src="../bin/Microsoft.WinJS.4.4/js/ui.js"></script>
         <link rel="stylesheet" href="style2.css">
-        <style>
-            .radialSize {
-	width: 32px;
-	height: 32px
-}
-
-.radial {
-	fill: none;
-	stroke: #0067C0;
-	stroke-width: 2px;
-	stroke-linecap: round;
-	transform-origin: 50% 50%;
-	transform: rotate(-90deg)
-}
-
-.radial-bg {
-	fill: none;
-	stroke: rgba(0, 0, 0, 0.18);
-	stroke-width: 2px;
-	stroke-linecap: round;
-}
-
-.radial-infinite {
-	animation: spin-infinite 2s linear infinite
-}
-@keyframes spin-infinite {
-	0% {
-		stroke-dasharray: 0.01px 43.97px;
-		transform: rotate(0deg)
-	}
-
-	50% {
-		stroke-dasharray: 21.99px 21.99px;
-		transform: rotate(450deg)
-	}
-
-	100% {
-		stroke-dasharray: .01px 43.97px;
-		transform: rotate(1080deg)
-	}
-}
-        </style>
         <script>
             WinJS.UI.processAll();
         </script>
     </head>
     <body class="win-type-body">
+        <div data-win-control="WinJS.UI.NavBar">
+            <div data-win-control="WinJS.UI.NavBarContainer">
+                <div data-win-control="WinJS.UI.NavBarCommand"
+                data-win-options="{label:'hi', icon:'\ue708'}">
+                </div>
+            </div>
+        </div>
         <div style="margin: 5px; grid-column-start: 1; grid-column-end: 3; display: grid;">
             Inputs
             <button class="win-button">Button</button>
@@ -71,10 +36,6 @@
                 <option>three</option>
                 <option>four</option>
             </select>
-            <svg id="_progressControl" class="radialSize" viewBox="0 0 16 16">
-                <circle class="radial-bg" cx="8px" cy="8px" r="7px"></circle>
-                <circle class="radial radial-infinite" cx="8px" cy="8px" r="7px"></circle>
-            </svg>
         </div>
         <div data-win-control="WinJS.UI.SearchBox" data-win-options="{value:'Search'}"></div>
 
