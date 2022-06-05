@@ -6,6 +6,7 @@ repos/
 LanguageConverter/
 xhml/
 microsoft-ui-xaml-main/
+winjs-release-3.0-xenon/
 
 *.orig
 *.suo

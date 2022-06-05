@@ -31,7 +31,10 @@ define([
         { name: "background-color", value: _Accents.ColorTypes.accent },
         { name: "border-color", value: _Accents.ColorTypes.accent },
          ]);
-
+    
+    //disable this in favor of theme aware borders
+    //actually it looks WORSE with it off, so its staying on..
+    //i might come back to this later on and have options to have this enabled or disabled
     _Accents.createAccentRule(".win-flyout, .win-settingsflyout", [{ name: "border-color", value: _Accents.ColorTypes.accent }]);
 
     _Base.Namespace._moduleDefine(exports, "WinJS.UI", {

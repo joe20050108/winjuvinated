@@ -1,7 +1,10 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
+@import "flyout-theme-resources.less";
+
 #win-overlay {
     .variableDefs(@theme) when not (@theme = highcontrast) {
         .colorDefinitions(@theme);
+        .themeResources(@theme);
 
         @accentColorDefaultOpacity: @listSelectRestOpacity;
         @accentColorHoverOpacity: @listSelectHoverOpacity;
@@ -17,11 +20,13 @@
         @appbarBorderColor: @chromeMid;
         @commandHoverBackgroundColor: @listHover;
         @commandActiveBackgroundColor: @listPress;
-        @flyoutBackgroundColor: @altHigh;
+        @flyoutBackgroundColor: @FlyoutPresenterBackground;
         @menuCommandActiveBackgroundColor: @listPress;
         @menuCommandHoverBackgroundColor: @listHover;
         @menuCommandDisabledColor: @baseLow;
-        @settingsFlyoutBackgroundColor: @altHigh;
+        @settingsFlyoutBackgroundColor: @FlyoutPresenterBackground;
+
+        @flyoutBorderColor: @FlyoutBorderThemeBrush;
     }
 
     .variableDefs(highcontrast) {
@@ -44,6 +49,8 @@
         @menuCommandHoverBackgroundColor: Highlight;
         @menuCommandDisabledColor: GrayText;
         @settingsFlyoutBackgroundColor: ButtonFace;
+        //no clue what this even does..
+        @flyoutBorderColor: Highlight;
     }
 
     .stylesForTheme(@theme) {
@@ -202,10 +209,12 @@
 
         &.win-flyout, .win-flyout {
             background-color: @flyoutBackgroundColor;
+            border-color: @flyoutBorderColor;
         }
 
         .win-settingsflyout {
             background-color: @settingsFlyoutBackgroundColor;
+            border-color: @flyoutBorderColor;
         }
 
         &.win-menu button, .win-menu button {

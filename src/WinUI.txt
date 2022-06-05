@@ -5,3 +5,4 @@ AppBar: Colors: NO | Styles: Heavily modified, but imcomplete
 Combobox: Colors: YES | Styles: Mostly, yes
 ComboBox -- Option: Colors: NO | Styles: Half & half (NOTE: Some of this only applies to IE10 so we are going to ignore it for now..)
 NavBarCommand: Colors: NO | Styles: YES
+ContentDialog: Colors: NO(Flyout overflowed into) | Styles: NO NO NO
