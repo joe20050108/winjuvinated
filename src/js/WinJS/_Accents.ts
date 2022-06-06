@@ -52,7 +52,7 @@
 // _WinRT.Windows.UI.ViewManagement.UISettings.colorValuesChanged event to
 // set/update the accent colors.
 // When WinRT is unavailable, we use a hard- coded value as the accent color as
-// a fallback.WinJS doesn’t currently support a way to change this fallback value.
+// a fallback.WinJS doesnï¿½t currently support a way to change this fallback value.
 
 //Implementation
 // The Accent Color module injects a dynamic stylesheet into the head of the
@@ -190,6 +190,8 @@ function handleColorsChanged() {
     scheduleWriteRules();
 }
 
+
+
 function colorToString(color: _WinRT.Windows.UI.Color, alpha: number) {
     return "rgba(" + color.r + "," + color.g + "," + color.b + "," + alpha + ")";
 }
@@ -243,6 +245,6 @@ var toPublish = {
     // Exposed for tests    
     _colors: colors,
     _reset: _reset,
-    _isDarkTheme: isDarkTheme
+    _isDarkTheme: isDarkTheme,
 };
 _Base.Namespace.define("WinJS.UI._Accents", toPublish);
