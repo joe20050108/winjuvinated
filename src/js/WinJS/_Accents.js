@@ -172,17 +172,14 @@ define([
     catch (e) {
 
         //try to see if we can use electron apis
-        console.log("attempt to electron api");
         try {
             // No WinRT, Electron Remote is present - Use accent colors
             const { systemPreferences } = window.remote;
-            console.log("Electron fallback?");
             handleColorsChangedElectron();
         }
         catch(e) {
             // No WinRT, No Electron Remote - use hardcoded blue accent color
             // The order of the colors align with the ColorTypes enum values
-            handleColorsChangedElectron();
             colors.push(
                 "rgb(0, 120, 215)",
                 "rgba(0, 120, 215, " + (isDarkTheme ? "0.6" : "0.4") + ")",
