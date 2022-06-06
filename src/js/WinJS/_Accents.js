@@ -120,7 +120,6 @@ define([
     //equivalent function for electron fallback
     function handleColorsChangedElectron() {
         var uiColor = remote.systemPreferences.getAccentColor();
-        console.log(uiColor);
         colors.length = 0;
         colors.push(
             "#" + uiColor,
@@ -130,8 +129,7 @@ define([
             hexToString(uiColor, (isDarkTheme ? 0.4 : 0.6)),
             hexToString(uiColor, (isDarkTheme ? 0.6 : 0.8)),
             hexToString(uiColor, (isDarkTheme ? 0.7 : 0.9)));
-            console.log(colors);
-        //scheduleWriteRules();
+        scheduleWriteRules();
     }
 
     function colorToString(color, alpha) {
@@ -141,7 +139,6 @@ define([
     //takes advantage of tinycolor, and is designed for electron based accent color
     function hexToString(color, alpha) {
         var newColor = new tinycolor(color);
-        console.log(newColor);
         return "rgba(" + newColor._r + "," + newColor._g + "," + newColor._b + "," + alpha + ")";
     }
 

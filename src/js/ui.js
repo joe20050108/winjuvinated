@@ -30,6 +30,8 @@ define([
     'WinJS/Controls/SplitView/Command',
     'WinJS/Controls/ToolBar',
     'WinJS/Controls/AppBar',
+    //Electron controls
+    "WinJS/Controls/ElectronControls",
     ], function (_WinJS) {
     "use strict";
 
