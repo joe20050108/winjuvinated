@@ -28662,3706 +28662,6 @@ define('WinJS/Controls/Repeater',[
 });
 
 // Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('WinJS/Controls/DatePicker',[
-    '../Core/_Global',
-    '../Core/_WinRT',
-    '../Core/_Base',
-    '../Core/_BaseUtils',
-    '../Core/_Events',
-    '../Core/_Resources',
-    '../Utilities/_Control',
-    '../Utilities/_ElementUtilities',
-    '../Utilities/_Hoverable',
-    '../Utilities/_Select',
-    'require-style!less/desktop/controls',
-    'require-style!less/phone/controls'
-    ], function datePickerInit(_Global, _WinRT, _Base, _BaseUtils, _Events, _Resources, _Control, _ElementUtilities, _Hoverable, _Select) {
-    "use strict";
-
-    _Base.Namespace.define("WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.DatePicker">Allows users to pick a date value.</summary>
-        /// <compatibleWith platform="Windows" minVersion="8.0"/>
-        /// </field>
-        /// <name locid="WinJS.UI.DatePicker_name">Date Picker</name>
-        /// <icon src="ui_winjs.ui.datepicker.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.datepicker.16x16.png" width="16" height="16" />
-        /// <htmlSnippet><![CDATA[<div data-win-control="WinJS.UI.DatePicker"></div>]]></htmlSnippet>
-        /// <event name="change" locid="WinJS.UI.DatePicker_e:change">Occurs when the current date changes.</event>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        DatePicker: _Base.Namespace._lazy(function () {
-            // Constants definition
-            var DEFAULT_DAY_PATTERN = 'day',
-                DEFAULT_MONTH_PATTERN = '{month.full}',
-                DEFAULT_YEAR_PATTERN = 'year.full';
-
-            var strings = {
-                get ariaLabel() { return _Resources._getWinJSString("ui/datePicker").value; },
-                get selectDay() { return _Resources._getWinJSString("ui/selectDay").value; },
-                get selectMonth() { return _Resources._getWinJSString("ui/selectMonth").value; },
-                get selectYear() { return _Resources._getWinJSString("ui/selectYear").value; },
-            };
-
-            var yearFormatCache = {};
-
-            function newFormatter(pattern, calendar, defaultPattern) {
-                var dtf = _WinRT.Windows.Globalization.DateTimeFormatting;
-                pattern = !pattern ? defaultPattern : pattern;
-                var c = new dtf.DateTimeFormatter(pattern);
-                if (calendar) {
-                    return new dtf.DateTimeFormatter(pattern, c.languages, c.geographicRegion, calendar, c.clock);
-                }
-                return c;
-            }
-
-            function formatCacheLookup(pattern, calendar, defaultPattern) {
-                var pat = yearFormatCache[pattern];
-                if (!pat) {
-                    pat = yearFormatCache[pattern] = {};
-                }
-                var cal = pat[calendar];
-                if (!cal) {
-                    cal = pat[calendar] = {};
-                }
-                var def = cal[defaultPattern];
-                if (!def) {
-                    def = cal[defaultPattern] = {};
-                    def.formatter = newFormatter(pattern, calendar, defaultPattern);
-                    def.years = {};
-                }
-                return def;
-            }
-
-            function formatYear(pattern, calendar, defaultPattern, datePatterns, order, cal) {
-                var cache = formatCacheLookup(pattern, calendar, defaultPattern);
-                var y = cache.years[cal.year + "-" + cal.era];
-                if (!y) {
-                    y = cache.formatter.format(cal.getDateTime());
-                    cache.years[cal.year + "-" + cal.era] = y;
-                }
-                return y;
-            }
-
-            function formatMonth(pattern, calendar, defaultPattern, cal) {
-                var cache = formatCacheLookup(pattern, calendar, defaultPattern);
-                // can't cache actual month names because the hebrew calendar varies
-                // the month name depending on religious holidays and leap months.
-                //
-                return cache.formatter.format(cal.getDateTime());
-            }
-
-            function formatDay(pattern, calendar, defaultPattern, cal) {
-                var cache = formatCacheLookup(pattern, calendar, defaultPattern);
-                // can't cache actual day names because the format may include the day of the week,
-                // which, of course, varies from month to month.
-                //
-                return cache.formatter.format(cal.getDateTime());
-            }
-
-            function newCal(calendar) {
-                var glob = _WinRT.Windows.Globalization;
-                var c = new glob.Calendar();
-                if (calendar) {
-                    return new glob.Calendar(c.languages, calendar, c.getClock());
-                }
-                return c;
-            }
-
-            function yearDiff(start, end) {
-                var yearCount = 0;
-
-                if (start.era === end.era) {
-                    yearCount = end.year - start.year;
-                } else {
-                    while (start.era !== end.era || start.year !== end.year) {
-                        yearCount++;
-                        start.addYears(1);
-                    }
-                }
-                return yearCount;
-            }
-
-            var DatePicker = _Base.Class.define(function DatePicker_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.DatePicker.DatePicker">
-                /// <summary locid="WinJS.UI.DatePicker.constructor">Creates a new DatePicker control.</summary>
-                /// <param name="element" type="HTMLElement" domElement="true" locid="WinJS.UI.DatePicker.constructor_p:element">
-                /// The DOM element that will host the DatePicker control.
-                /// </param>
-                /// <param name="options" type="Object" locid="WinJS.UI.DatePicker.constructor_p:options">
-                /// An object that contains one or more property/value pairs to apply to the new control. Each property of the options object corresponds
-                /// to one of the control's properties or events.
-                /// </param>
-                /// <returns type="WinJS.UI.DatePicker" locid="WinJS.UI.DatePicker.constructor_returnValue">A constructed DatePicker control.</returns>
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </signature>
-
-                // Default to current date
-                this._currentDate = new Date();
-
-                // Default to +/- 100 years
-                this._minYear = this._currentDate.getFullYear() - 100;
-                this._maxYear = this._currentDate.getFullYear() + 100;
-                this._datePatterns = {
-                    date: null,
-                    month: null,
-                    year: null
-                };
-
-                element = element || _Global.document.createElement("div");
-                _ElementUtilities.addClass(element, "win-disposable");
-                element.winControl = this;
-
-                var label = element.getAttribute("aria-label");
-                if (!label) {
-                    element.setAttribute("aria-label", strings.ariaLabel);
-                }
-
-                // Options should be set after the element is initialized which is
-                // the same order of operation as imperatively setting options.
-                this._init(element);
-                _Control.setOptions(this, options);
-            }, {
-                _information: null,
-                _currentDate: null,
-                _calendar: null,
-                _disabled: false,
-                _dateElement: null,
-                _dateControl: null,
-                _monthElement: null,
-                _monthControl: null,
-                _minYear: null,
-                _maxYear: null,
-                _yearElement: null,
-                _yearControl: null,
-                _datePatterns: {
-                    date: null,
-                    month: null,
-                    year: null
-                },
-
-                _addAccessibilityAttributes: function () {
-                    //see http://www.w3.org/TR/wai-aria/rdf_model.png for details
-                    this._domElement.setAttribute("role", "group");
-
-                    this._dateElement.setAttribute("aria-label", strings.selectDay);
-                    this._monthElement.setAttribute("aria-label", strings.selectMonth);
-                    this._yearElement.setAttribute("aria-label", strings.selectYear);
-                },
-
-                _addControlsInOrder: function () {
-                    var e = this._domElement;
-                    var that = this;
-                    var orderIndex = 0; // don't use forEach's index, because "era" is in the list
-                    that._information.order.forEach(function (s) {
-                        switch (s) {
-                            case "month":
-                                e.appendChild(that._monthElement);
-                                _ElementUtilities.addClass(that._monthElement, "win-order" + (orderIndex++));
-                                break;
-                            case "date":
-                                e.appendChild(that._dateElement);
-                                _ElementUtilities.addClass(that._dateElement, "win-order" + (orderIndex++));
-                                break;
-                            case "year":
-                                e.appendChild(that._yearElement);
-                                _ElementUtilities.addClass(that._yearElement, "win-order" + (orderIndex++));
-                                break;
-                        }
-                    });
-                },
-
-                _createControlElements: function () {
-                    this._monthElement = _Global.document.createElement("select");
-                    this._monthElement.className = "win-datepicker-month";
-                    this._dateElement = _Global.document.createElement("select");
-                    this._dateElement.className = "win-datepicker-date";
-                    this._yearElement = _Global.document.createElement("select");
-                    this._yearElement.className = "win-datepicker-year";
-                },
-
-                _createControls: function () {
-                    var info = this._information;
-                    var index = info.getIndex(this.current);
-
-                    if (info.forceLanguage) {
-                        this._domElement.setAttribute("lang", info.forceLanguage);
-                        this._domElement.setAttribute("dir", info.isRTL ? "rtl" : "ltr");
-                    }
-
-
-                    this._yearControl = new _Select._Select(this._yearElement, {
-                        dataSource: this._information.years,
-                        disabled: this.disabled,
-                        index: index.year
-                    });
-
-                    this._monthControl = new _Select._Select(this._monthElement, {
-                        dataSource: this._information.months(index.year),
-                        disabled: this.disabled,
-                        index: index.month
-                    });
-
-                    this._dateControl = new _Select._Select(this._dateElement, {
-                        dataSource: this._information.dates(index.year, index.month),
-                        disabled: this.disabled,
-                        index: index.date
-                    });
-
-                    this._wireupEvents();
-                },
-                dispose: function () {
-                    /// <signature helpKeyword="WinJS.UI.DatePicker.dispose">
-                    /// <summary locid="WinJS.UI.DatePicker.dispose">
-                    /// Disposes this control.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                },
-
-                /// <field type="String" locid="WinJS.UI.DatePicker.calendar" helpKeyword="WinJS.UI.DatePicker.calendar">
-                /// Gets or sets the calendar to use.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                calendar: {
-                    get: function () {
-                        return this._calendar;
-                    },
-                    set: function (value) {
-                        this._calendar = value;
-                        this._setElement(this._domElement);
-                    }
-                },
-
-                /// <field type="Date" locid="WinJS.UI.DatePicker.current" helpKeyword="WinJS.UI.DatePicker.current">
-                /// Gets or sets the current date of the DatePicker.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                current: {
-                    get: function () {
-                        var d = this._currentDate;
-                        var y = d.getFullYear();
-                        return new Date(Math.max(Math.min(this.maxYear, y), this.minYear), d.getMonth(), d.getDate(), 12, 0, 0, 0);
-                    },
-                    set: function (value) {
-                        var newDate;
-                        if (typeof (value) === "string") {
-                            newDate = new Date(Date.parse(value));
-                            newDate.setHours(12, 0, 0, 0);
-                        } else {
-                            newDate = value;
-                        }
-
-                        var oldDate = this._currentDate;
-                        if (oldDate !== newDate) {
-                            this._currentDate = newDate;
-                            this._updateDisplay();
-                        }
-                    }
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.DatePicker.disabled" helpKeyword="WinJS.UI.DatePicker.disabled">
-                /// Gets or sets a value that specifies whether the DatePicker is disabled. A value of true indicates that the DatePicker is disabled.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                disabled: {
-                    get: function () { return this._disabled; },
-                    set: function (value) {
-                        if (this._disabled !== value) {
-                            this._disabled = value;
-                            // all controls get populated at the same time, so any check is OK
-                            //
-                            if (this._yearControl) {
-                                this._monthControl.setDisabled(value);
-                                this._dateControl.setDisabled(value);
-                                this._yearControl.setDisabled(value);
-                            }
-                        }
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.DatePicker.datePattern" helpKeyword="WinJS.UI.DatePicker.datePattern">
-                /// Gets or sets the display pattern for the date.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                datePattern: {
-                    get: function () { return this._datePatterns.date; },
-                    set: function (value) {
-                        if (this._datePatterns.date !== value) {
-                            this._datePatterns.date = value;
-                            this._init();
-                        }
-                    }
-                },
-
-
-                /// <field type="HTMLElement" domElement="true" hidden="true" locid="WinJS.UI.DatePicker.element" helpKeyword="WinJS.UI.DatePicker.element">
-                /// Gets the DOM element for the DatePicker.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                element: {
-                    get: function () { return this._domElement; }
-                },
-
-                _setElement: function (element) {
-                    this._domElement = this._domElement || element;
-                    if (!this._domElement) { return; }
-
-                    _ElementUtilities.empty(this._domElement);
-                    _ElementUtilities.addClass(this._domElement, "win-datepicker");
-
-                    this._updateInformation();
-
-                    this._createControlElements();
-                    this._addControlsInOrder();
-                    this._createControls();
-                    this._addAccessibilityAttributes();
-                },
-
-                /// <field type="Number" integer="true" locid="WinJS.UI.DatePicker.minYear" helpKeyword="WinJS.UI.DatePicker.minYear">
-                /// Gets or sets the minimum Gregorian year available for picking.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                minYear: {
-                    get: function () {
-                        return this._information.getDate({ year: 0, month: 0, date: 0 }).getFullYear();
-                    },
-                    set: function (value) {
-                        if (this._minYear !== value) {
-                            this._minYear = value;
-                            if (value > this._maxYear) {
-                                this._maxYear = value;
-                            }
-                            this._updateInformation();
-                            if (this._yearControl) {
-                                this._yearControl.dataSource = this._information.years;
-                            }
-
-                            this._updateDisplay();
-                        }
-                    }
-                },
-
-                /// <field type="Number" integer="true" locid="WinJS.UI.DatePicker.maxYear" helpKeyword="WinJS.UI.DatePicker.maxYear">
-                /// Gets or sets the maximum Gregorian year available for picking.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                maxYear: {
-                    get: function () {
-                        var index = {
-                            year: this._information.years.getLength() - 1
-                        };
-                        index.month = this._information.months(index.year).getLength() - 1;
-                        index.date = this._information.dates(index.year, index.month).getLength() - 1;
-                        return this._information.getDate(index).getFullYear();
-                    },
-                    set: function (value) {
-                        if (this._maxYear !== value) {
-                            this._maxYear = value;
-                            if (value < this._minYear) {
-                                this._minYear = value;
-                            }
-                            this._updateInformation();
-                            if (this._yearControl) {
-                                this._yearControl.dataSource = this._information.years;
-                            }
-
-                            this._updateDisplay();
-                        }
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.DatePicker.monthPattern" helpKeyword="WinJS.UI.DatePicker.monthPattern">
-                /// Gets or sets the display pattern for the month.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                monthPattern: {
-                    get: function () { return this._datePatterns.month; },
-                    set: function (value) {
-                        if (this._datePatterns.month !== value) {
-                            this._datePatterns.month = value;
-                            this._init();
-                        }
-                    }
-                },
-
-                _updateInformation: function () {
-                    // since "year" in the date ctor can be two digit (85 == 1985), we need
-                    // to force "full year" to capture dates < 100 a.d.
-                    //
-                    var min = new Date(this._minYear, 0, 1, 12, 0, 0);
-                    var max = new Date(this._maxYear, 11, 31, 12, 0, 0);
-                    min.setFullYear(this._minYear);
-                    max.setFullYear(this._maxYear);
-
-                    this._information = DatePicker.getInformation(min, max, this._calendar, this._datePatterns);
-                },
-
-                _init: function (element) {
-                    this._setElement(element);
-                },
-
-                _updateDisplay: function () {
-                    if (!this._domElement) {
-                        return;
-                    }
-
-                    // all controls get populated at the same time, so any check is OK
-                    //
-                    if (this._yearControl) {
-                        //Render display index based on constraints (minYear and maxYear constraints)
-                        //Will not modify current date
-                        var index = this._information.getIndex(this.current);
-
-                        this._yearControl.index = index.year;
-                        this._monthControl.dataSource = this._information.months(index.year);
-                        this._monthControl.index = index.month;
-                        this._dateControl.dataSource = this._information.dates(index.year, index.month);
-                        this._dateControl.index = index.date;
-                    }
-                },
-
-                _wireupEvents: function () {
-                    var that = this;
-                    function changed() {
-                        that._currentDate = that._information.getDate({ year: that._yearControl.index, month: that._monthControl.index, date: that._dateControl.index }, that._currentDate);
-                        var index = that._information.getIndex(that._currentDate);
-
-                        // Changing the month (or year, if the current date is 2/29) changes the day range, and could have made the day selection invalid
-                        that._monthControl.dataSource = that._information.months(index.year);
-                        that._monthControl.index = index.month;
-                        that._dateControl.dataSource = that._information.dates(index.year, index.month);
-                        that._dateControl.index = index.date;
-                    }
-
-                    this._dateElement.addEventListener("change", changed, false);
-                    this._monthElement.addEventListener("change", changed, false);
-                    this._yearElement.addEventListener("change", changed, false);
-                },
-
-                /// <field type="String" locid="WinJS.UI.DatePicker.yearPattern" helpKeyword="WinJS.UI.DatePicker.yearPattern">
-                /// Gets or sets the display pattern for year.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                yearPattern: {
-                    get: function () { return this._datePatterns.year; },
-                    set: function (value) {
-                        if (this._datePatterns.year !== value) {
-                            this._datePatterns.year = value;
-                            this._init();
-                        }
-                    }
-                },
-            }, {
-                _getInformationWinRT: function (startDate, endDate, calendar, datePatterns) {
-                    datePatterns = datePatterns || { date: DEFAULT_DAY_PATTERN, month: DEFAULT_MONTH_PATTERN, year: DEFAULT_YEAR_PATTERN };
-
-                    var tempCal = newCal(calendar);
-                    var monthCal = newCal(calendar);
-                    var dayCal = newCal(calendar);
-
-                    tempCal.setToMin();
-                    var minDateTime = tempCal.getDateTime();
-                    tempCal.setToMax();
-                    var maxDateTime = tempCal.getDateTime();
-
-                    function clamp(date) {
-                        return new Date(Math.min(new Date(Math.max(minDateTime, date)), maxDateTime));
-                    }
-
-                    tempCal.hour = 12;
-
-                    startDate = clamp(startDate);
-                    endDate = clamp(endDate);
-
-                    tempCal.setDateTime(endDate);
-                    var end = { year: tempCal.year, era: tempCal.era };
-
-                    tempCal.setDateTime(startDate);
-                    var yearLen = 0;
-
-                    yearLen = yearDiff(tempCal, end) + 1;
-
-                    // Explicity use a template that's equivalent to a longdate template
-                    // as longdate/shortdate can be overriden by the user
-                    var dateformat = formatCacheLookup("day month.full year", calendar).formatter;
-                    var localdatepattern = dateformat.patterns[0];
-                    var isRTL = localdatepattern.charCodeAt(0) === 8207;
-                    var order = ["date", "month", "year"];
-
-                    var indexes = {
-                        month: localdatepattern.indexOf("{month"),
-                        date: localdatepattern.indexOf("{day"),
-                        year: localdatepattern.indexOf("{year")
-                    };
-                    order.sort(function (a, b) {
-                        if (indexes[a] < indexes[b]) {
-                            return -1;
-                        } else if (indexes[a] > indexes[b]) {
-                            return 1;
-                        } else {
-                            return 0;
-                        }
-                    });
-
-                    var yearSource = (function () {
-                        return {
-                            getLength: function () { return yearLen; },
-                            getValue: function (index) {
-                                tempCal.setDateTime(startDate);
-                                tempCal.addYears(index);
-
-                                return formatYear(datePatterns.year, calendar, DEFAULT_YEAR_PATTERN, datePatterns, order, tempCal);
-                            }
-                        };
-                    })();
-
-                    var monthSource = function (yearIndex) {
-                        monthCal.setDateTime(startDate);
-                        monthCal.addYears(yearIndex);
-
-                        return {
-                            getLength: function () { return monthCal.numberOfMonthsInThisYear; },
-                            getValue: function (index) {
-                                monthCal.month = monthCal.firstMonthInThisYear;
-                                monthCal.addMonths(index);
-                                return formatMonth(datePatterns.month, calendar, DEFAULT_MONTH_PATTERN, monthCal);
-                            }
-                        };
-                    };
-
-                    var dateSource = function (yearIndex, monthIndex) {
-                        dayCal.setDateTime(startDate);
-                        dayCal.addYears(yearIndex);
-                        dayCal.month = dayCal.firstMonthInThisYear;
-                        dayCal.addMonths(monthIndex);
-                        dayCal.day = dayCal.firstDayInThisMonth;
-
-                        return {
-                            getLength: function () { return dayCal.numberOfDaysInThisMonth; },
-                            getValue: function (index) {
-                                dayCal.day = dayCal.firstDayInThisMonth;
-                                dayCal.addDays(index);
-                                return formatDay(datePatterns.date, calendar, DEFAULT_DAY_PATTERN, dayCal);
-                            }
-                        };
-                    };
-
-                    return {
-                        isRTL: isRTL,
-                        forceLanguage: dateformat.resolvedLanguage,
-
-                        order: order,
-
-                        getDate: function (index, lastDate) {
-                            var lastCal;
-
-                            if (lastDate) {
-                                tempCal.setDateTime(lastDate);
-                                lastCal = { year: tempCal.year, month: tempCal.month, day: tempCal.day };
-                            }
-
-                            var c = tempCal;
-                            c.setDateTime(startDate);
-                            c.addYears(index.year);
-
-                            var guessMonth;
-                            if (c.firstMonthInThisYear > c.lastMonthInThisYear) {
-                                if (index.month + c.firstMonthInThisYear > c.numberOfMonthsInThisYear) {
-                                    guessMonth = index.month + c.firstMonthInThisYear - c.numberOfMonthsInThisYear;
-                                } else {
-                                    guessMonth = index.month + c.firstMonthInThisYear;
-                                }
-                                if (lastCal && lastCal.year !== c.year) {
-                                    // Year has changed in some transitions in Thai Calendar, this will change the first month, and last month indices of the year.
-                                    guessMonth = Math.max(Math.min(lastCal.month, c.numberOfMonthsInThisYear), 1);
-                                }
-                            } else {
-                                if (lastCal && lastCal.year !== c.year) {
-                                    // Year has changed in some transitions in Thai Calendar, this will change the first month, and last month indices of the year.
-                                    guessMonth = Math.max(Math.min(lastCal.month, c.firstMonthInThisYear + c.numberOfMonthsInThisYear - 1), c.firstMonthInThisYear);
-                                } else {
-                                    guessMonth = Math.max(Math.min(index.month + c.firstMonthInThisYear, c.firstMonthInThisYear + c.numberOfMonthsInThisYear - 1), c.firstMonthInThisYear);
-                                }
-                            }
-                            c.month = guessMonth;
-
-                            var guessDay = Math.max(Math.min(index.date + c.firstDayInThisMonth, c.firstDayInThisMonth + c.numberOfDaysInThisMonth - 1), c.firstDayInThisMonth);
-                            if (lastCal && (lastCal.year !== c.year || lastCal.month !== c.month)) {
-                                guessDay = Math.max(Math.min(lastCal.day, c.firstDayInThisMonth + c.numberOfDaysInThisMonth - 1), c.firstDayInThisMonth);
-                            }
-                            c.day = c.firstDayInThisMonth;
-                            c.addDays(guessDay - c.firstDayInThisMonth);
-                            return c.getDateTime();
-                        },
-                        getIndex: function (date) {
-                            var curDate = clamp(date);
-                            tempCal.setDateTime(curDate);
-                            var cur = { year: tempCal.year, era: tempCal.era };
-
-                            var yearIndex = 0;
-
-                            tempCal.setDateTime(startDate);
-                            tempCal.month = 1;
-                            yearIndex = yearDiff(tempCal, cur);
-
-                            tempCal.setDateTime(curDate);
-                            var monthIndex = tempCal.month - tempCal.firstMonthInThisYear;
-                            if (monthIndex < 0) {
-                                // A special case is in some ThaiCalendar years first month
-                                // of the year is April, last month is March and month flow is wrap-around
-                                // style; April, March .... November, December, January, February, March. So the first index
-                                // will be 4 and last index will be 3. We are handling the case to convert this wraparound behavior
-                                // into selected index.
-                                monthIndex = tempCal.month - tempCal.firstMonthInThisYear + tempCal.numberOfMonthsInThisYear;
-                            }
-                            var dateIndex = tempCal.day - tempCal.firstDayInThisMonth;
-
-                            var index = {
-                                year: yearIndex,
-                                month: monthIndex,
-                                date: dateIndex
-                            };
-
-                            return index;
-                        },
-                        years: yearSource,
-                        months: monthSource,
-                        dates: dateSource
-                    };
-
-                },
-
-                _getInformationJS: function (startDate, endDate) {
-                    var minYear = startDate.getFullYear();
-                    var maxYear = endDate.getFullYear();
-                    var yearSource = {
-                        getLength: function () { return Math.max(0, maxYear - minYear + 1); },
-                        getValue: function (index) { return minYear + index; }
-                    };
-
-                    var months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-                    var monthSource = function () {
-                        return {
-                            getLength: function () { return months.length; },
-                            getValue: function (index) { return months[index]; },
-                            getMonthNumber: function (index) { return Math.min(index, months.length - 1); }
-                        };
-                    };
-
-                    var dateSource = function (yearIndex, monthIndex) {
-                        var temp = new Date();
-                        var year = yearSource.getValue(yearIndex);
-                        // The +1 is needed to make using a day of 0 work correctly
-                        var month = monthIndex + 1; // index is always correct, unlike getMonth which changes when the date is invalid
-                        temp.setFullYear(year, month, 0);
-
-                        var maxValue = temp.getDate();
-
-                        return {
-                            getLength: function () { return maxValue; },
-                            getValue: function (index) { return "" + (index + 1); },
-                            getDateNumber: function (index) { return Math.min(index + 1, maxValue); }
-                        };
-                    };
-
-                    return {
-                        order: ["month", "date", "year"],
-
-                        getDate: function (index) {
-                            return new Date(
-                                yearSource.getValue(index.year),
-                                monthSource(index.year).getMonthNumber(index.month),
-                                dateSource(index.year, index.month).getDateNumber(index.date),
-                                12, 0
-                            );
-                        },
-                        getIndex: function (date) {
-                            var yearIndex = 0;
-                            var year = date.getFullYear();
-                            if (year < minYear) {
-                                yearIndex = 0;
-                            } else if (year > this.maxYear) {
-                                yearIndex = yearSource.getLength() - 1;
-                            } else {
-                                yearIndex = date.getFullYear() - minYear;
-                            }
-
-                            var monthIndex = Math.min(date.getMonth(), monthSource(yearIndex).getLength());
-
-                            var dateIndex = Math.min(date.getDate() - 1, dateSource(yearIndex, monthIndex).getLength());
-
-                            return {
-                                year: yearIndex,
-                                month: monthIndex,
-                                date: dateIndex
-                            };
-                        },
-                        years: yearSource,
-                        months: monthSource,
-                        dates: dateSource
-                    };
-                }
-            });
-            if (_WinRT.Windows.Globalization.Calendar && _WinRT.Windows.Globalization.DateTimeFormatting) {
-                DatePicker.getInformation = DatePicker._getInformationWinRT;
-            } else {
-                DatePicker.getInformation = DatePicker._getInformationJS;
-            }
-            _Base.Class.mix(DatePicker, _Events.createEventProperties("change"));
-            _Base.Class.mix(DatePicker, _Control.DOMEventMixin);
-            return DatePicker;
-        })
-    });
-
-
-});
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-
-define('WinJS/Controls/TimePicker',[
-    '../Core/_Global',
-    '../Core/_WinRT',
-    '../Core/_Base',
-    '../Core/_BaseUtils',
-    '../Core/_Events',
-    '../Core/_Resources',
-    '../Utilities/_Control',
-    '../Utilities/_ElementUtilities',
-    '../Utilities/_Hoverable',
-    '../Utilities/_Select',
-    'require-style!less/desktop/controls',
-    'require-style!less/phone/controls'
-    ], function timePickerInit(_Global, _WinRT, _Base, _BaseUtils, _Events, _Resources, _Control, _ElementUtilities, _Hoverable, _Select) {
-    "use strict";
-
-    _Base.Namespace.define("WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.TimePicker">Allows users to select time values.</summary>
-        /// <compatibleWith platform="Windows" minVersion="8.0"/>
-        /// </field>
-        /// <name locid="WinJS.UI.TimePicker_name">Time Picker</name>
-        /// <icon src="ui_winjs.ui.timepicker.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.timepicker.16x16.png" width="16" height="16" />
-        /// <htmlSnippet><![CDATA[<div data-win-control="WinJS.UI.TimePicker"></div>]]></htmlSnippet>
-        /// <event name="change" locid="WinJS.UI.TimePicker_e:change">Occurs when the time changes.</event>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        TimePicker: _Base.Namespace._lazy(function () {
-            // Constants definition
-            var DEFAULT_MINUTE_PATTERN = "{minute.integer(2)}",
-                DEFAULT_HOUR_PATTERN = "{hour.integer(1)}",
-                DEFAULT_PERIOD_PATTERN = "{period.abbreviated(2)}";
-
-            var strings = {
-                get ariaLabel() { return _Resources._getWinJSString("ui/timePicker").value; },
-                get selectHour() { return _Resources._getWinJSString("ui/selectHour").value; },
-                get selectMinute() { return _Resources._getWinJSString("ui/selectMinute").value; },
-                get selectAMPM() { return _Resources._getWinJSString("ui/selectAMPM").value; },
-            };
-
-            // date1 and date2 must be Date objects with their date portions set to the
-            // sentinel date.
-            var areTimesEqual = function (date1, date2) {
-                return date1.getHours() === date2.getHours() &&
-                    date1.getMinutes() === date2.getMinutes();
-            };
-
-            var TimePicker = _Base.Class.define(function TimePicker_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.TimePicker.TimePicker">
-                /// <summary locid="WinJS.UI.TimePicker.constructor">Initializes a new instance of the TimePicker control</summary>
-                /// <param name="element" type="HTMLElement" domElement="true" locid="WinJS.UI.TimePicker.constructor_p:element">
-                /// The DOM element associated with the TimePicker control.
-                /// </param>
-                /// <param name="options" type="Object" locid="WinJS.UI.TimePicker.constructor_p:options">
-                /// The set of options to be applied initially to the TimePicker control.
-                /// </param>
-                /// <returns type="WinJS.UI.TimePicker" locid="WinJS.UI.TimePicker.constructor_returnValue">A constructed TimePicker control.</returns>
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </signature>
-
-                // Default to current time
-                this._currentTime = TimePicker._sentinelDate();
-
-                element = element || _Global.document.createElement("div");
-                _ElementUtilities.addClass(element, "win-disposable");
-                element.winControl = this;
-
-                var label = element.getAttribute("aria-label");
-                if (!label) {
-                    element.setAttribute("aria-label", strings.ariaLabel);
-                }
-
-                this._timePatterns = {
-                    minute: null,
-                    hour: null,
-                    period: null
-                };
-
-                // Options should be set after the element is initialized which is
-                // the same order of operation as imperatively setting options.
-                this._init(element);
-                _Control.setOptions(this, options);
-            }, {
-                _currentTime: null,
-                _clock: null,
-                _disabled: false,
-                _hourElement: null,
-                _hourControl: null,
-                _minuteElement: null,
-                _minuteControl: null,
-                _ampmElement: null,
-                _ampmControl: null,
-                _minuteIncrement: 1,
-                _timePatterns: {
-                    minute: null,
-                    hour: null,
-                    period: null
-                },
-                _information: null,
-
-                _addAccessibilityAttributes: function () {
-                    //see http://www.w3.org/TR/wai-aria/rdf_model.png for details
-                    this._domElement.setAttribute("role", "group");
-
-                    this._hourElement.setAttribute("aria-label", strings.selectHour);
-                    this._minuteElement.setAttribute("aria-label", strings.selectMinute);
-                    if (this._ampmElement) {
-                        this._ampmElement.setAttribute("aria-label", strings.selectAMPM);
-                    }
-                },
-
-                _addControlsInOrder: function (info) {
-                    var that = this;
-                    info.order.forEach(function (s, index) {
-                        switch (s) {
-                            case "hour":
-                                that._domElement.appendChild(that._hourElement);
-                                _ElementUtilities.addClass(that._hourElement, "win-order" + index);
-                                break;
-                            case "minute":
-                                that._domElement.appendChild(that._minuteElement);
-                                _ElementUtilities.addClass(that._minuteElement, "win-order" + index);
-                                break;
-                            case "period":
-                                if (that._ampmElement) {
-                                    that._domElement.appendChild(that._ampmElement);
-                                    _ElementUtilities.addClass(that._ampmElement, "win-order" + index);
-                                }
-                                break;
-                        }
-                    });
-                },
-
-                dispose: function () {
-                    /// <signature helpKeyword="WinJS.UI.TimePicker.dispose">
-                    /// <summary locid="WinJS.UI.TimePicker.dispose">
-                    /// Disposes this TimePicker.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                },
-
-                /// <field type="String" locid="WinJS.UI.TimePicker.clock" helpKeyword="WinJS.UI.TimePicker.clock">
-                /// Gets or sets the type of clock to display (12HourClock or 24HourClock). It defaults to the user setting.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                clock: {
-                    get: function () {
-                        return this._clock;
-                    },
-                    set: function (value) {
-                        if (this._clock !== value) {
-                            this._clock = value;
-                            this._init();
-                        }
-                    }
-                },
-
-                /// <field type="Date" locid="WinJS.UI.TimePicker.current" helpKeyword="WinJS.UI.TimePicker.current">
-                /// Gets or sets the current date (and time) of the TimePicker.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                current: {
-                    get: function () {
-                        var cur = this._currentTime;
-                        if (cur) {
-                            var time = TimePicker._sentinelDate();
-                            time.setHours(cur.getHours()); // accounts for AM/PM
-                            time.setMinutes(this._getMinutesIndex(cur) * this.minuteIncrement);
-                            time.setSeconds(0);
-                            time.setMilliseconds(0);
-                            return time;
-                        } else {
-                            return cur;
-                        }
-                    },
-                    set: function (value) {
-                        var newTime;
-                        if (typeof (value) === "string") {
-                            newTime = TimePicker._sentinelDate();
-                            newTime.setTime(Date.parse(newTime.toDateString() + " " + value));
-                        } else {
-                            newTime = TimePicker._sentinelDate();
-                            newTime.setHours(value.getHours());
-                            newTime.setMinutes(value.getMinutes());
-                        }
-
-                        var oldTime = this._currentTime;
-                        if (!areTimesEqual(oldTime, newTime)) {
-                            this._currentTime = newTime;
-
-                            this._updateDisplay();
-                        }
-                    }
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.TimePicker.disabled" helpKeyword="WinJS.UI.TimePicker.disabled">
-                /// Specifies whether the TimePicker is disabled.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                disabled: {
-                    get: function () { return this._disabled; },
-                    set: function (value) {
-                        if (this._disabled !== value) {
-                            this._disabled = value;
-                            if (this._hourControl) {
-                                this._hourControl.setDisabled(value);
-                                this._minuteControl.setDisabled(value);
-                            }
-                            if (this._ampmControl) {
-                                this._ampmControl.setDisabled(value);
-                            }
-                        }
-                    }
-                },
-
-                /// <field type="HTMLElement" domElement="true" hidden="true" locid="WinJS.UI.TimePicker.element" helpKeyword="WinJS.UI.TimePicker.element">
-                /// Gets the DOM element for the TimePicker.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                element: {
-                    get: function () { return this._domElement; }
-                },
-
-
-                _init: function (element) {
-                    this._setElement(element);
-                    this._updateDisplay();
-                },
-
-                /// <field type="String" locid="WinJS.UI.TimePicker.hourPattern" helpKeyword="WinJS.UI.TimePicker.hourPattern">
-                /// Gets or sets the display pattern for the hour.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                hourPattern: {
-                    get: function () { return this._timePatterns.hour.pattern; },
-                    set: function (value) {
-                        if (this._timePatterns.hour !== value) {
-                            this._timePatterns.hour = value;
-                            this._init();
-                        }
-                    }
-
-                },
-
-                _getHoursAmpm: function (time) {
-                    var hours24 = time.getHours();
-                    if (this._ampmElement) {
-                        if (hours24 === 0) {
-                            return { hours: 12, ampm: 0 };
-                        } else if (hours24 < 12) {
-                            return { hours: hours24, ampm: 0 };
-                        }
-                        return { hours: hours24 - 12, ampm: 1 };
-                    }
-
-                    return { hours: hours24 };
-                },
-
-                _getHoursIndex: function (hours) {
-                    if (this._ampmElement && hours === 12) {
-                        return 0;
-                    }
-                    return hours;
-                },
-
-                _getMinutesIndex: function (time) {
-                    return parseInt(time.getMinutes() / this.minuteIncrement);
-                },
-
-                /// <field type="Number" integer="true" locid="WinJS.UI.TimePicker.minuteIncrement" helpKeyword="WinJS.UI.TimePicker.minuteIncrement">
-                /// Gets or sets the minute increment. For example, "15" specifies that the TimePicker minute control should display only the choices 00, 15, 30, 45.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                minuteIncrement: {
-                    //prevent divide by 0, and leave user's input intact
-                    get: function () { return Math.max(1, Math.abs(this._minuteIncrement | 0) % 60); },
-                    set: function (value) {
-                        if (this._minuteIncrement !== value) {
-                            this._minuteIncrement = value;
-                            this._init();
-                        }
-                    }
-
-                },
-
-                /// <field type="String" locid="WinJS.UI.TimePicker.minutePattern" helpKeyword="WinJS.UI.TimePicker.minutePattern">
-                /// Gets or sets the display pattern for the minute.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                minutePattern: {
-                    get: function () { return this._timePatterns.minute.pattern; },
-                    set: function (value) {
-                        if (this._timePatterns.minute !== value) {
-                            this._timePatterns.minute = value;
-                            this._init();
-                        }
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.TimePicker.periodPattern" helpKeyword="WinJS.UI.TimePicker.periodPattern">
-                /// Gets or sets the display pattern for the period.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                periodPattern: {
-                    get: function () { return this._timePatterns.period.pattern; },
-                    set: function (value) {
-
-                        if (this._timePatterns.period !== value) {
-                            this._timePatterns.period = value;
-                            this._init();
-                        }
-                    }
-                },
-
-                _setElement: function (element) {
-                    this._domElement = this._domElement || element;
-                    if (!this._domElement) { return; }
-
-                    var info = TimePicker.getInformation(this.clock, this.minuteIncrement, this._timePatterns);
-                    this._information = info;
-
-                    if (info.forceLanguage) {
-                        this._domElement.setAttribute("lang", info.forceLanguage);
-                        this._domElement.setAttribute("dir", info.isRTL ? "rtl" : "ltr");
-                    }
-
-                    _ElementUtilities.empty(this._domElement);
-                    _ElementUtilities.addClass(this._domElement, "win-timepicker");
-
-                    this._hourElement = _Global.document.createElement("select");
-                    _ElementUtilities.addClass(this._hourElement, "win-timepicker-hour");
-
-                    this._minuteElement = _Global.document.createElement("select");
-                    _ElementUtilities.addClass(this._minuteElement, "win-timepicker-minute");
-
-                    this._ampmElement = null;
-                    if (info.clock === "12HourClock") {
-                        this._ampmElement = _Global.document.createElement("select");
-                        _ElementUtilities.addClass(this._ampmElement, "win-timepicker-period");
-                    }
-
-                    this._addControlsInOrder(info);
-
-                    var hoursAmpm = this._getHoursAmpm(this.current);
-                    this._hourControl = new _Select._Select(this._hourElement, {
-                        dataSource: this._getInfoHours(),
-                        disabled: this.disabled,
-                        index: this._getHoursIndex(hoursAmpm.hours)
-                    });
-                    this._minuteControl = new _Select._Select(this._minuteElement, {
-                        dataSource: info.minutes,
-                        disabled: this.disabled,
-                        index: this._getMinutesIndex(this.current)
-                    });
-                    this._ampmControl = null;
-                    if (this._ampmElement) {
-                        this._ampmControl = new _Select._Select(this._ampmElement, {
-                            dataSource: info.periods,
-                            disabled: this.disabled,
-                            index: hoursAmpm.ampm
-                        });
-                    }
-
-                    this._wireupEvents();
-                    this._updateValues();
-                    this._addAccessibilityAttributes();
-                },
-
-                _getInfoHours: function () {
-                    return this._information.hours;
-                },
-
-                _updateLayout: function () {
-                    if (!this._domElement) {
-                        return;
-                    }
-                    this._updateValues();
-                },
-
-                _updateValues: function () {
-                    if (this._hourControl) {
-                        var hoursAmpm = this._getHoursAmpm(this.current);
-                        if (this._ampmControl) {
-                            this._ampmControl.index = hoursAmpm.ampm;
-                        }
-                        this._hourControl.index = this._getHoursIndex(hoursAmpm.hours);
-                        this._minuteControl.index = this._getMinutesIndex(this.current);
-                    }
-                },
-
-                _updateDisplay: function () {
-                    //Render display index based on constraints (minuteIncrement)
-                    //Will not modify current time
-
-                    var hoursAmpm = this._getHoursAmpm(this.current);
-
-                    if (this._ampmControl) {
-                        this._ampmControl.index = hoursAmpm.ampm;
-                    }
-
-                    if (this._hourControl) {
-                        this._hourControl.index = this._getHoursIndex(hoursAmpm.hours);
-                        this._minuteControl.index = this._getMinutesIndex(this.current);
-                    }
-                },
-
-                _wireupEvents: function () {
-                    var that = this;
-
-                    var fixupHour = function () {
-                        var hour = that._hourControl.index;
-                        if (that._ampmElement) {
-                            if (that._ampmControl.index === 1) {
-                                if (hour !== 12) {
-                                    hour += 12;
-                                }
-                            }
-                        }
-                        return hour;
-                    };
-
-                    var changed = function () {
-                        var hour = fixupHour();
-                        that._currentTime.setHours(hour);
-
-                        that._currentTime.setMinutes(that._minuteControl.index * that.minuteIncrement);
-                    };
-
-                    this._hourElement.addEventListener("change", changed, false);
-                    this._minuteElement.addEventListener("change", changed, false);
-                    if (this._ampmElement) {
-                        this._ampmElement.addEventListener("change", changed, false);
-                    }
-                }
-            }, {
-                _sentinelDate: function () {
-                    // This is July 15th, 2011 as our sentinel date. There are no known
-                    //  daylight savings transitions that happened on that date.
-                    var current = new Date();
-                    return new Date(2011, 6, 15, current.getHours(), current.getMinutes());
-                },
-                _getInformationWinRT: function (clock, minuteIncrement, timePatterns) {
-                    var newFormatter = function (pattern, defaultPattern) {
-                        var dtf = _WinRT.Windows.Globalization.DateTimeFormatting;
-                        pattern = !pattern ? defaultPattern : pattern;
-                        var formatter = new dtf.DateTimeFormatter(pattern);
-                        if (clock) {
-                            formatter = dtf.DateTimeFormatter(pattern, formatter.languages, formatter.geographicRegion, formatter.calendar, clock);
-                        }
-                        return formatter;
-                    };
-
-                    var glob = _WinRT.Windows.Globalization;
-                    var calendar = new glob.Calendar();
-                    if (clock) {
-                        calendar = new glob.Calendar(calendar.languages, calendar.getCalendarSystem(), clock);
-                    }
-                    calendar.setDateTime(TimePicker._sentinelDate());
-
-                    var computedClock = calendar.getClock();
-                    var numberOfHours = 24;
-                    numberOfHours = calendar.numberOfHoursInThisPeriod;
-
-                    var periods = (function () {
-                        var periodFormatter = newFormatter(timePatterns.period, DEFAULT_PERIOD_PATTERN);
-                        return {
-                            getLength: function () { return 2; },
-                            getValue: function (index) {
-                                var date = TimePicker._sentinelDate();
-                                if (index === 0) {
-                                    date.setHours(1);
-                                    var am = periodFormatter.format(date);
-                                    return am;
-                                }
-                                if (index === 1) {
-                                    date.setHours(13);
-                                    var pm = periodFormatter.format(date);
-                                    return pm;
-                                }
-                                return null;
-                            }
-                        };
-                    })();
-
-                    // Determine minute format from the DateTimeFormatter
-                    var minutes = (function () {
-                        var minuteFormatter = newFormatter(timePatterns.minute, DEFAULT_MINUTE_PATTERN);
-                        var now = TimePicker._sentinelDate();
-                        return {
-                            getLength: function () { return 60 / minuteIncrement; },
-                            getValue: function (index) {
-                                var display = index * minuteIncrement;
-                                now.setMinutes(display);
-                                return minuteFormatter.format(now);
-                            }
-                        };
-                    })();
-
-
-                    // Determine hour format from the DateTimeFormatter
-                    var hours = (function () {
-                        var hourFormatter = newFormatter(timePatterns.hour, DEFAULT_HOUR_PATTERN);
-                        var now = TimePicker._sentinelDate();
-                        return {
-                            getLength: function () { return numberOfHours; },
-                            getValue: function (index) {
-                                now.setHours(index);
-                                return hourFormatter.format(now);
-                            }
-                        };
-                    })();
-
-                    // Determine the order of the items from the DateTimeFormatter.
-                    // "hour minute" also returns the period (if needed).
-                    //
-                    var hourMinuteFormatter = newFormatter("hour minute");
-                    var pattern = hourMinuteFormatter.patterns[0];
-                    var order = ["hour", "minute"];
-
-                    var indexes = {
-                        period: pattern.indexOf("{period"),
-                        hour: pattern.indexOf("{hour"),
-                        minute: pattern.indexOf("{minute")
-                    };
-                    if (indexes.period > -1) {
-                        order.push("period");
-                    }
-
-
-                    var DateTimeFormatter = _WinRT.Windows.Globalization.DateTimeFormatting.DateTimeFormatter;
-                    var dtf = new DateTimeFormatter("month.full", _WinRT.Windows.Globalization.ApplicationLanguages.languages, "ZZ", "GregorianCalendar", "24HourClock");
-                    var pat = dtf.patterns[0];
-                    var isRTL = pat.charCodeAt(0) === 8207;
-
-                    if (isRTL) {
-                        var temp = indexes.hour;
-                        indexes.hour = indexes.minute;
-                        indexes.minute = temp;
-                    }
-
-                    order.sort(function (a, b) {
-                        if (indexes[a] < indexes[b]) {
-                            return -1;
-                        } else if (indexes[a] > indexes[b]) {
-                            return 1;
-                        } else {
-                            return 0;
-                        }
-                    });
-
-                    return { minutes: minutes, hours: hours, clock: computedClock, periods: periods, order: order, forceLanguage: hourMinuteFormatter.resolvedLanguage, isRTL: isRTL };
-                },
-                _getInformationJS: function (clock, minuteIncrement) {
-                    var hours = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-
-                    var minutes = {};
-                    minutes.getLength = function () { return 60 / minuteIncrement; };
-                    minutes.getValue = function (index) {
-                        var display = index * minuteIncrement;
-                        if (display < 10) {
-                            return "0" + display.toString();
-                        } else {
-                            return display.toString();
-                        }
-                    };
-
-                    var order = ["hour", "minute", "period"];
-                    if (clock === "24HourClock") {
-                        hours = ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
-                        order = ["hour", "minute"];
-                    }
-                    return { minutes: minutes, hours: hours, clock: clock || "12HourClock", periods: ["AM", "PM"], order: order };
-                }
-            });
-            if (_WinRT.Windows.Globalization.DateTimeFormatting && _WinRT.Windows.Globalization.Calendar && _WinRT.Windows.Globalization.ApplicationLanguages) {
-                TimePicker.getInformation = TimePicker._getInformationWinRT;
-            } else {
-                TimePicker.getInformation = TimePicker._getInformationJS;
-            }
-            _Base.Class.mix(TimePicker, _Events.createEventProperties("change"));
-            _Base.Class.mix(TimePicker, _Control.DOMEventMixin);
-            return TimePicker;
-        })
-    });
-
-
-});
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-// Back Button
-define('WinJS/Controls/BackButton',[
-    '../Core/_Global',
-    '../Core/_Base',
-    '../Core/_ErrorFromName',
-    '../Core/_Resources',
-    '../Navigation',
-    '../Utilities/_Control',
-    '../Utilities/_ElementUtilities',
-    '../Utilities/_Hoverable',
-    'require-style!less/desktop/controls',
-    'require-style!less/phone/controls'
-    ], function backButtonInit(_Global, _Base, _ErrorFromName, _Resources, Navigation, _Control, _ElementUtilities, _Hoverable) {
-    "use strict";
-
-    var Key = _ElementUtilities.Key;
-
-    // Class Names
-    var navigationBackButtonClass = 'win-navigation-backbutton';
-    var glyphClass = "win-back";
-
-    // CONSTANTS
-    var MOUSE_BACK_BUTTON = 3;
-
-    // Create Singleton for global event registering/unregistering. This Singleton should only be created once.
-    // Here the function 'returnBackButtonSingelton' is called immediateley and its result is the singleton object.
-    var singleton = (function createBackButtonSingleton() {
-
-        /* Step 1: Build JavaScript closure */
-
-        function hookUpBackButtonGlobalEventHandlers() {
-            // Subscribes to global events on the window object
-            _Global.addEventListener('keyup', backButtonGlobalKeyUpHandler, false);
-            _ElementUtilities._addEventListener(_Global, 'pointerup', backButtonGlobalMSPointerUpHandler, false);
-        }
-
-        function unHookBackButtonGlobalEventHandlers() {
-            // Unsubscribes from global events on the window object
-            _Global.removeEventListener('keyup', backButtonGlobalKeyUpHandler, false);
-            _ElementUtilities._removeEventListener(_Global, 'pointerup', backButtonGlobalMSPointerUpHandler, false);
-        }
-
-        function backButtonGlobalKeyUpHandler(event) {
-            // Navigates back when (alt + left) or BrowserBack keys are released.
-            if ((event.keyCode === Key.leftArrow && event.altKey && !event.shiftKey && !event.ctrlKey) || (event.keyCode === Key.browserBack)) {
-                Navigation.back();
-            }
-        }
-
-        function backButtonGlobalMSPointerUpHandler(event) {
-            // Responds to clicks to enable navigation using 'back' mouse buttons.
-            if (event.button === MOUSE_BACK_BUTTON) {
-                Navigation.back();
-            }
-        }
-
-        // Singleton reference count for registering and unregistering global event handlers.
-        var backButtonReferenceCount = 0; //
-
-        /* Step 2: Return Singleton object literal */
-        return {
-            addRef: function () {
-                if (backButtonReferenceCount === 0) {
-                    hookUpBackButtonGlobalEventHandlers();
-                }
-                backButtonReferenceCount++;
-            },
-            release: function () {
-                if (backButtonReferenceCount > 0) { // Ensure count won't become negative.
-                    backButtonReferenceCount--;
-                    if (backButtonReferenceCount === 0) {
-                        unHookBackButtonGlobalEventHandlers();
-                    }
-                }
-            },
-            getCount: function () { // Return the value of the reference count. Useful for unit testing.
-                return backButtonReferenceCount;
-            }
-        };
-    }()); // Immediate invoke creates and returns the Singleton
-
-    _Base.Namespace.define("WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.BackButton">
-        /// Provides backwards navigation functionality.
-        /// </summary>
-        /// <compatibleWith platform="Windows" minVersion="8.1"/>
-        /// </field>
-        /// <icon src="ui_winjs.ui.backbutton.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.backbutton.16x16.png" width="16" height="16" />
-        /// <htmlSnippet><![CDATA[<button data-win-control="WinJS.UI.BackButton"></button>]]></htmlSnippet>
-        /// <part name="BackButton" class="win-navigation-backbutton" locid="WinJS.UI.BackButton_part:BackButton">The BackButton control itself</part>
-        /// <part name="BackArrowGlyph" class="win-back" locid="WinJS.UI.BackButton_part:BackArrowGlyph">The Back Arrow glyph</part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        BackButton: _Base.Namespace._lazy(function () {
-            // Statics
-            var strings = {
-                get ariaLabel() { return _Resources._getWinJSString("ui/backbuttonarialabel").value; },
-                get duplicateConstruction() { return "Invalid argument: Controls may only be instantiated one time for each DOM element"; },
-                get badButtonElement() { return "Invalid argument: For a button, toggle, or flyout command, the element must be null or a button element"; }
-            };
-
-            var BackButton = _Base.Class.define(function BackButton_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.BackButton.BackButton">
-                /// <summary locid="WinJS.UI.BackButton.constructor">
-                /// Creates a new BackButton control
-                /// </summary>
-                /// <param name="element" domElement="true" locid="WinJS.UI.BackButton.constructor_p:element">
-                /// The DOM element that will host the control. If this parameter is null, this constructor creates one for you.
-                /// </param>
-                /// <param name="options" type="Object" isOptional="true" locid="WinJS.UI.MenuBackButtonCommand.constructor_p:options">
-                /// An object that contains one or more property/value pairs to apply to the new control. Each property of the options object corresponds to
-                /// one of the control's properties or events.
-                /// </param>
-                /// <returns type="WinJS.UI.BackButton" locid="WinJS.UI.BackButton.constructor_returnValue">
-                /// A BackButton control.
-                /// </returns>
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </signature>
-
-                // Check to make sure we weren't duplicated
-                if (element && element.winControl) {
-                    throw new _ErrorFromName("WinJS.UI.BackButton.DuplicateConstruction", strings.duplicateConstruction);
-                }
-
-                this._element = element || _Global.document.createElement("button");
-                options = options || {};
-
-                this._initializeButton(); // This will also set the aria-label and tooltip
-
-                this._disposed = false;
-
-                // Remember ourselves
-                this._element.winControl = this;
-
-                _Control.setOptions(this, options);
-
-                // Add event handlers for this back button instance
-                this._buttonClickHandler = this._handleBackButtonClick.bind(this);
-                this._element.addEventListener('click', this._buttonClickHandler, false);
-                this._navigatedHandler = this._handleNavigatedEvent.bind(this);
-                Navigation.addEventListener('navigated', this._navigatedHandler, false);
-
-                // Increment reference count / manage add global event handlers
-                singleton.addRef();
-            }, {
-
-                /// <field type="HTMLElement" domElement="true" readonly="true" hidden="true" locid="WinJS.UI.BackButton.element" helpKeyword="WinJS.UI.BackButton.element">
-                /// Gets the DOM element that hosts the BackButton control.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                element: {
-                    get: function () {
-                        return this._element;
-                    }
-                },
-
-                dispose: function () {
-                    /// <signature helpKeyword="WinJS.UI.BackButton.dispose">
-                    /// <summary locid="WinJS.UI.BackButton.dispose">
-                    /// Disposes this control.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </signature>
-                    if (this._disposed) {
-                        return;
-                    }
-                    this._disposed = true; // Mark this control as disposed.
-
-                    // Remove 'navigated' eventhandler for this BackButton
-                    Navigation.removeEventListener('navigated', this._navigatedHandler, false);
-
-                    singleton.release(); // Decrement reference count.
-
-                },
-
-                refresh: function () {
-                    /// <signature helpKeyword="WinJS.UI.BackButton.refresh">
-                    /// <summary locid="WinJS.UI.BackButton.refresh">
-                    /// Sets the 'disabled' attribute to correct the value based on the current navigation history stack.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </signature>
-                    if (Navigation.canGoBack) {
-                        this._element.disabled = false;
-                    } else {
-                        this._element.disabled = true;
-                    }
-                },
-
-                _initializeButton: function () {
-                    //Final EN-US HTML should be:
-                    //<button class="win-navigation-backbutton" aria-label="Back" title="Back" type="button"><span class="win-back"></span></button>
-                    //Button will automatically be disabled if WinJS.Navigation.history.canGoBack is false.
-
-                    // Verify the HTML is a button
-                    if (this._element.tagName !== "BUTTON") {
-                        throw new _ErrorFromName("WinJS.UI.BackButton.BadButtonElement", strings.badButtonElement);
-                    }
-
-                    // Attach our css classes
-                    _ElementUtilities.addClass(this._element, navigationBackButtonClass);
-
-                    // Attach disposable class.
-                    _ElementUtilities.addClass(this._element, "win-disposable");
-
-                    // Create inner glyph element
-                    this._element.innerHTML = '<span class="' + glyphClass + '"></span>';
-
-                    // Set the 'disabled' property to the correct value based on the current navigation history stack.
-                    this.refresh();
-
-                    // Set Aria-label and native tooltip to the same localized string equivalent of "Back"
-                    this._element.setAttribute("aria-label", strings.ariaLabel);
-                    this._element.setAttribute("title", strings.ariaLabel);
-
-                    // Explicitly set type attribute to avoid the default <button> "submit" type.
-                    this._element.setAttribute("type", "button");
-                },
-
-                _handleNavigatedEvent: function () {
-                    // Handles WinJS.Navigation 'navigated' behavior
-                    this.refresh();
-                },
-
-                _handleBackButtonClick: function () {
-                    // Handles BackButton 'click' behavior
-                    Navigation.back();
-                }
-
-            });
-            // Private Static Method.
-            BackButton._getReferenceCount = function () {
-                return singleton.getCount(); // Expose this for Unit testing.
-            };
-            _Base.Class.mix(BackButton, _Control.DOMEventMixin);
-            return BackButton;
-        })
-    });
-
-});
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('WinJS/Controls/Tooltip',[
-    'exports',
-    '../Core/_Global',
-    '../Core/_WinRT',
-    '../Core/_Base',
-    '../Core/_BaseUtils',
-    '../Core/_Events',
-    '../Animations',
-    '../Animations/_TransitionAnimation',
-    '../Utilities/_Control',
-    '../Utilities/_Dispose',
-    '../Utilities/_ElementUtilities',
-    '../Utilities/_Hoverable',
-    'require-style!less/desktop/controls',
-    'require-style!less/phone/controls'
-    ], function tooltipInit(exports, _Global, _WinRT, _Base, _BaseUtils, _Events, Animations, _TransitionAnimation, _Control, _Dispose, _ElementUtilities, _Hoverable) {
-    "use strict";
-
-    // Tooltip control implementation
-    _Base.Namespace._moduleDefine(exports, "WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.Tooltip">
-        /// Displays a tooltip that can contain images and formatting.
-        /// </summary>
-        /// <compatibleWith platform="Windows" minVersion="8.0"/>
-        /// </field>
-        /// <icon src="ui_winjs.ui.tooltip.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.tooltip.16x16.png" width="16" height="16" />
-        /// <htmlSnippet supportsContent="true"><![CDATA[<div style="display:inline-block;" data-win-control="WinJS.UI.Tooltip" data-win-options="{innerHTML:'Tooltip content goes here'}"></div>]]></htmlSnippet>
-        /// <event name="beforeopen" bubbles="false" locid="WinJS.UI.Tooltip_e:beforeopen">Raised when the tooltip is about to appear.</event>
-        /// <event name="opened" bubbles="false" locid="WinJS.UI.Tooltip_e:opened">Raised when the tooltip is showing.</event>
-        /// <event name="beforeclose" bubbles="false" locid="WinJS.UI.Tooltip_e:beforeclose">Raised when the tooltip is about to become hidden.</event>
-        /// <event name="closed" bubbles="false" locid="WinJS.UI.Tooltip_e:close">Raised when the tooltip is hidden.</event>
-        /// <part name="tooltip" class="win-tooltip" locid="WinJS.UI.Tooltip_e:tooltip">The entire Tooltip control.</part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        Tooltip: _Base.Namespace._lazy(function () {
-            var lastCloseTime = 0;
-            var Key = _ElementUtilities.Key;
-
-            // Constants definition
-            var DEFAULT_PLACEMENT = "top";
-            var DELAY_INITIAL_TOUCH_SHORT = _TransitionAnimation._animationTimeAdjustment(400);
-            var DELAY_INITIAL_TOUCH_LONG = _TransitionAnimation._animationTimeAdjustment(1200);
-            var DEFAULT_MOUSE_HOVER_TIME = _TransitionAnimation._animationTimeAdjustment(400); // 0.4 second
-            var DEFAULT_MESSAGE_DURATION = _TransitionAnimation._animationTimeAdjustment(5000); // 5 secs
-            var DELAY_RESHOW_NONINFOTIP_TOUCH = _TransitionAnimation._animationTimeAdjustment(0);
-            var DELAY_RESHOW_NONINFOTIP_NONTOUCH = _TransitionAnimation._animationTimeAdjustment(600);
-            var DELAY_RESHOW_INFOTIP_TOUCH = _TransitionAnimation._animationTimeAdjustment(400);
-            var DELAY_RESHOW_INFOTIP_NONTOUCH = _TransitionAnimation._animationTimeAdjustment(600);
-            var RESHOW_THRESHOLD = _TransitionAnimation._animationTimeAdjustment(200);
-            var HIDE_DELAY_MAX = _TransitionAnimation._animationTimeAdjustment(300000); // 5 mins
-            var OFFSET_KEYBOARD = 12;
-            var OFFSET_MOUSE = 20;
-            var OFFSET_TOUCH = 45;
-            var OFFSET_PROGRAMMATIC_TOUCH = 20;
-            var OFFSET_PROGRAMMATIC_NONTOUCH = 12;
-            var SAFETY_NET_GAP = 1; // We set a 1-pixel gap between the right or bottom edge of the tooltip and the viewport to avoid possible re-layout
-            var PT_MOUSE = _ElementUtilities._MSPointerEvent.MSPOINTER_TYPE_MOUSE || "mouse"; // pointer type to indicate a mouse event
-            var PT_TOUCH = _ElementUtilities._MSPointerEvent.MSPOINTER_TYPE_TOUCH || "touch"; // pointer type to indicate a touch event
-
-            var EVENTS_INVOKE = { "keyup": "", "pointerover": "", "pointerdown": "" },
-                EVENTS_UPDATE = { "pointermove": "" },
-                EVENTS_DISMISS = { "pointerdown": "", "keydown": "", "focusout": "", "pointerout": "", "pointercancel": "", "pointerup": "" },
-                EVENTS_BY_CHILD = { "pointerover": "", "pointerout": "" };
-
-            function isInvokeEvent(eventType, pointerType) {
-                if (eventType === "pointerdown") {
-                    return pointerType === PT_TOUCH;
-                } else {
-                    return eventType in EVENTS_INVOKE;
-                }
-            }
-
-            function isDismissEvent(eventType, pointerType) {
-                if (eventType === "pointerdown") {
-                    return pointerType !== PT_TOUCH;
-                } else {
-                    return eventType in EVENTS_DISMISS;
-                }
-            }
-
-            // CSS class names
-            var msTooltip = "win-tooltip",
-            msTooltipPhantom = "win-tooltip-phantom";
-
-            // Global attributes
-            var mouseHoverTime = DEFAULT_MOUSE_HOVER_TIME,
-                nonInfoTooltipNonTouchShowDelay = 2 * mouseHoverTime,
-                infoTooltipNonTouchShowDelay = 2.5 * mouseHoverTime,
-                messageDuration = DEFAULT_MESSAGE_DURATION,
-                isLeftHanded = false;
-
-            var hasInitWinRTSettings = false;
-
-            var createEvent = _Events._createEventProperty;
-
-            return _Base.Class.define(function Tooltip_ctor(anchorElement, options) {
-                /// <signature helpKeyword="WinJS.UI.Tooltip.Tooltip">
-                /// <summary locid="WinJS.UI.Tooltip.constructor">
-                /// Creates a new Tooltip.
-                /// </summary>
-                /// <param name="element" domElement="true" locid="WinJS.UI.Tooltip.constructor_p:element">
-                /// The DOM element that hosts the Tooltip.
-                /// </param>
-                /// <param name="options" type="Object" locid="WinJS.UI.Tooltip.constructor_p:options">
-                /// An object that contains one or more property/value pairs to apply to the new control.
-                /// Each property of the options object corresponds to one of the control's properties or events.
-                /// Event names must begin with "on". For example, to provide a handler for the opened event,
-                /// add a property named "onopened" to the options object and set its value to the event handler.
-                /// This parameter is optional.
-                /// </param>
-                /// <returns type="WinJS.UI.Tooltip" locid="WinJS.UI.Tooltip.constructor_returnValue">
-                /// The new Tooltip.
-                /// </returns>
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </signature>
-                anchorElement = anchorElement || _Global.document.createElement("div");
-
-                var tooltip = _ElementUtilities.data(anchorElement).tooltip;
-                if (tooltip) {
-                    return tooltip;
-                }
-
-                // Set system attributes if it is in WWA, otherwise, use the default values
-                if (!hasInitWinRTSettings && _WinRT.Windows.UI.ViewManagement.UISettings) { // in WWA
-                    var uiSettings = new _WinRT.Windows.UI.ViewManagement.UISettings();
-                    mouseHoverTime = _TransitionAnimation._animationTimeAdjustment(uiSettings.mouseHoverTime);
-                    nonInfoTooltipNonTouchShowDelay = 2 * mouseHoverTime;
-                    infoTooltipNonTouchShowDelay = 2.5 * mouseHoverTime;
-                    messageDuration = _TransitionAnimation._animationTimeAdjustment(uiSettings.messageDuration * 1000);  // uiSettings.messageDuration is in seconds.
-                    var handedness = uiSettings.handPreference;
-                    isLeftHanded = (handedness === _WinRT.Windows.UI.ViewManagement.HandPreference.leftHanded);
-                }
-                hasInitWinRTSettings = true;
-
-                // Need to initialize properties
-                this._disposed = false;
-                this._placement = DEFAULT_PLACEMENT;
-                this._infotip = false;
-                this._innerHTML = null;
-                this._contentElement = null;
-                this._extraClass = null;
-                this._lastContentType = "html";
-                this._anchorElement = anchorElement;
-                this._domElement = null;
-                this._phantomDiv = null;
-                this._triggerByOpen = false;
-                this._eventListenerRemoveStack = [];
-
-                // To handle keyboard navigation
-                this._lastKeyOrBlurEvent = null;
-                this._currentKeyOrBlurEvent = null;
-
-                // Remember ourselves
-                anchorElement.winControl = this;
-                _ElementUtilities.addClass(anchorElement, "win-disposable");
-
-                // If anchor element's title is defined, set as the default tooltip content
-                if (anchorElement.title) {
-                    this._innerHTML = this._anchorElement.title;
-                    this._anchorElement.removeAttribute("title");
-                }
-
-                _Control.setOptions(this, options);
-                this._events();
-                _ElementUtilities.data(anchorElement).tooltip = this;
-            }, {
-                /// <field type="String" locid="WinJS.UI.Tooltip.innerHTML" helpKeyword="WinJS.UI.Tooltip.innerHTML">
-                /// Gets or sets the HTML content of the Tooltip.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                innerHTML: {
-                    get: function () {
-                        return this._innerHTML;
-                    },
-                    set: function (value) {
-                        this._innerHTML = value;
-                        if (this._domElement) {
-                            // If we set the innerHTML to null or "" while tooltip is up, we should close it
-                            if (!this._innerHTML || this._innerHTML === "") {
-                                this._onDismiss();
-                                return;
-                            }
-                            this._domElement.innerHTML = value;
-                            this._position();
-                        }
-                        this._lastContentType = "html";
-                    }
-                },
-
-                /// <field type="HTMLElement" hidden="true" locid="WinJS.UI.Tooltip.element" helpKeyword="WinJS.UI.Tooltip.element">
-                /// Gets or sets the DOM element that hosts the Tooltip.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                element: {
-                    get: function () {
-                        return this._anchorElement;
-                    }
-                },
-
-                /// <field type="HTMLElement" locid="WinJS.UI.Tooltip.contentElement" helpKeyword="WinJS.UI.Tooltip.contentElement" potentialValueSelector="div[style='display: none;']>div[id], div[style='display: none;']>div[class]">
-                /// Gets or sets the DOM element that is the content for the ToolTip.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                contentElement: {
-                    get: function () {
-                        return this._contentElement;
-                    },
-                    set: function (value) {
-                        this._contentElement = value;
-                        if (this._domElement) {
-                            // If we set the contentElement to null while tooltip is up, we should close it
-                            if (!this._contentElement) {
-                                this._onDismiss();
-                                return;
-                            }
-                            this._domElement.innerHTML = "";
-                            this._domElement.appendChild(this._contentElement);
-                            this._position();
-                        }
-                        this._lastContentType = "element";
-                    }
-                },
-
-                /// <field type="String" oamOptionsDatatype="WinJS.UI.Tooltip.placement" locid="WinJS.UI.Tooltip.placement" helpKeyword="WinJS.UI.Tooltip.placement">
-                /// Gets or sets the position for the Tooltip relative to its target element: top, bottom, left or right.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                placement: {
-                    get: function () {
-                        return this._placement;
-                    },
-                    set: function (value) {
-                        if (value !== "top" && value !== "bottom" && value !== "left" && value !== "right") {
-                            value = DEFAULT_PLACEMENT;
-                        }
-                        this._placement = value;
-                        if (this._domElement) {
-                            this._position();
-                        }
-                    }
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.Tooltip.infotip" helpKeyword="WinJS.UI.Tooltip.infotip">
-                /// Gets or sets a value that specifies whether the Tooltip is an infotip, a tooltip that contains
-                /// a lot of info and should be displayed for longer than a typical Tooltip.
-                /// The default value is false.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                infotip: {
-                    get: function () {
-                        return this._infotip;
-                    },
-                    set: function (value) {
-                        this._infotip = !!value; //convert the value to boolean
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.Tooltip.extraClass" helpKeyword="WinJS.UI.Tooltip.extraClass" isAdvanced="true">
-                /// Gets or sets additional CSS classes to apply to the Tooltip control's host element.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                extraClass: {
-                    get: function () {
-                        return this._extraClass;
-                    },
-                    set: function (value) {
-                        this._extraClass = value;
-                    }
-                },
-
-                /// <field type="Function" locid="WinJS.UI.Tooltip.onbeforeopen" helpKeyword="WinJS.UI.Tooltip.onbeforeopen">
-                /// Raised just before the Tooltip appears.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                onbeforeopen: createEvent("beforeopen"),
-
-                /// <field type="Function" locid="WinJS.UI.Tooltip.onopened" helpKeyword="WinJS.UI.Tooltip.onopened">
-                /// Raised when the Tooltip is shown.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                onopened: createEvent("opened"),
-
-                /// <field type="Function" locid="WinJS.UI.Tooltip.onbeforeclose" helpKeyword="WinJS.UI.Tooltip.onbeforeclose">
-                /// Raised just before the Tooltip is hidden.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                onbeforeclose: createEvent("beforeclose"),
-
-                /// <field type="Function" locid="WinJS.UI.Tooltip.onclosed" helpKeyword="WinJS.UI.Tooltip.onclosed">
-                /// Raised when the Tooltip is no longer displayed.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                onclosed: createEvent("closed"),
-
-                dispose: function () {
-                    /// <signature helpKeyword="WinJS.UI.Tooltip.dispose">
-                    /// <summary locid="WinJS.UI.Tooltip.dispose">
-                    /// Disposes this Tooltip.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                    if (this._disposed) {
-                        return;
-                    }
-
-                    this._disposed = true;
-                    _Dispose.disposeSubTree(this.element);
-                    for (var i = 0, len = this._eventListenerRemoveStack.length; i < len; i++) {
-                        this._eventListenerRemoveStack[i]();
-                    }
-                    this._onDismiss();
-                    var data = _ElementUtilities.data(this._anchorElement);
-                    if (data) {
-                        delete data.tooltip;
-                    }
-                },
-
-                addEventListener: function (eventName, eventCallBack, capture) {
-                    /// <signature helpKeyword="WinJS.UI.Tooltip.addEventListener">
-                    /// <summary locid="WinJS.UI.Tooltip.addEventListener">
-                    /// Registers an event handler for the specified event.
-                    /// </summary>
-                    /// <param name="eventName" type="String" locid="WinJS.UI.Tooltip.addEventListener_p:eventName">The name of the event.</param>
-                    /// <param name="eventCallback" type="Function" locid="WinJS.UI.Tooltip.addEventListener_p:eventCallback">The event handler function to associate with this event.</param>
-                    /// <param name="capture" type="Boolean" locid="WinJS.UI.Tooltip.addEventListener_p:capture">Set to true to register the event handler for the capturing phase; set to false to register for the bubbling phase.</param>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-
-                    if (this._anchorElement) {
-                        this._anchorElement.addEventListener(eventName, eventCallBack, capture);
-
-                        var that = this;
-                        this._eventListenerRemoveStack.push(function () {
-                            that._anchorElement.removeEventListener(eventName, eventCallBack, capture);
-                        });
-                    }
-                },
-
-                removeEventListener: function (eventName, eventCallBack, capture) {
-                    /// <signature helpKeyword="WinJS.UI.Tooltip.removeEventListener">
-                    /// <summary locid="WinJS.UI.Tooltip.removeEventListener">
-                    /// Unregisters an event handler for the specified event.
-                    /// </summary>
-                    /// <param name="eventName" type="String" locid="WinJS.UI.Tooltip.removeEventListener:eventName">The name of the event.</param>
-                    /// <param name="eventCallback" type="Function" locid="WinJS.UI.Tooltip.removeEventListener:eventCallback">The event handler function to remove.</param>
-                    /// <param name="capture" type="Boolean" locid="WinJS.UI.Tooltip.removeEventListener:capture">Set to true to unregister the event handler for the capturing phase; otherwise, set to false to unregister the event handler for the bubbling phase.</param>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-
-                    if (this._anchorElement) {
-                        this._anchorElement.removeEventListener(eventName, eventCallBack, capture);
-                    }
-                },
-
-                open: function (type) {
-                    /// <signature helpKeyword="WinJS.UI.Tooltip.open">
-                    /// <summary locid="WinJS.UI.Tooltip.open">
-                    /// Shows the Tooltip.
-                    /// </summary>
-                    /// <param name="type" type="String" locid="WinJS.UI.Tooltip.open_p:type">The type of tooltip to show: "touch", "mouseover", "mousedown", or "keyboard". The default value is "mousedown".</param>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-
-                    // Open takes precedence over other triggering events
-                    // Once tooltip is opened using open(), it can only be closed by time out(mouseover or keyboard) or explicitly by close().
-                    this._triggerByOpen = true;
-
-                    if (type !== "touch" && type !== "mouseover" && type !== "mousedown" && type !== "keyboard") {
-                        type = "default";
-                    }
-
-                    switch (type) {
-                        case "touch":
-                            this._onInvoke("touch", "never");
-                            break;
-                        case "mouseover":
-                            this._onInvoke("mouse", "auto");
-                            break;
-                        case "keyboard":
-                            this._onInvoke("keyboard", "auto");
-                            break;
-                        case "mousedown":
-                        case "default":
-                            this._onInvoke("nodelay", "never");
-                            break;
-                    }
-
-                },
-
-                close: function () {
-                    /// <signature helpKeyword="WinJS.UI.Tooltip.close">
-                    /// <summary locid="WinJS.UI.Tooltip.close">
-                    /// Hids the Tooltip.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-
-                    this._onDismiss();
-                },
-
-                _cleanUpDOM: function () {
-                    if (this._domElement) {
-                        _Dispose.disposeSubTree(this._domElement);
-                        _Global.document.body.removeChild(this._domElement);
-                        this._domElement = null;
-
-                        _Global.document.body.removeChild(this._phantomDiv);
-                        this._phantomDiv = null;
-                    }
-                },
-
-                _createTooltipDOM: function () {
-                    this._cleanUpDOM();
-
-                    this._domElement = _Global.document.createElement("div");
-
-                    var id = _ElementUtilities._uniqueID(this._domElement);
-                    this._domElement.setAttribute("id", id);
-
-                    // Set the direction of tooltip according to anchor element's
-                    var computedStyle = _Global.document.defaultView.getComputedStyle(this._anchorElement, null);
-                    var elemStyle = this._domElement.style;
-                    elemStyle.direction = computedStyle.direction;
-                    elemStyle.writingMode = computedStyle["writing-mode"]; // must use CSS name, not JS name
-
-                    // Make the tooltip non-focusable
-                    this._domElement.setAttribute("tabindex", -1);
-
-                    // Set the aria tags for accessibility
-                    this._domElement.setAttribute("role", "tooltip");
-                    this._anchorElement.setAttribute("aria-describedby", id);
-
-                    // Set the tooltip content
-                    if (this._lastContentType === "element") { // Last update through contentElement option
-                        this._domElement.appendChild(this._contentElement);
-                    } else { // Last update through innerHTML option
-                        this._domElement.innerHTML = this._innerHTML;
-                    }
-
-                    _Global.document.body.appendChild(this._domElement);
-                    _ElementUtilities.addClass(this._domElement, msTooltip);
-
-                    // In the event of user-assigned classes, add those too
-                    if (this._extraClass) {
-                        _ElementUtilities.addClass(this._domElement, this._extraClass);
-                    }
-
-                    // Create a phantom div on top of the tooltip div to block all interactions
-                    this._phantomDiv = _Global.document.createElement("div");
-                    this._phantomDiv.setAttribute("tabindex", -1);
-                    _Global.document.body.appendChild(this._phantomDiv);
-                    _ElementUtilities.addClass(this._phantomDiv, msTooltipPhantom);
-                    var zIndex = _Global.document.defaultView.getComputedStyle(this._domElement, null).zIndex + 1;
-                    this._phantomDiv.style.zIndex = zIndex;
-                },
-
-                _raiseEvent: function (type, eventProperties) {
-                    if (this._anchorElement) {
-                        var customEvent = _Global.document.createEvent("CustomEvent");
-                        customEvent.initCustomEvent(type, false, false, eventProperties);
-                        this._anchorElement.dispatchEvent(customEvent);
-                    }
-                },
-
-                // Support for keyboard navigation
-                _captureLastKeyBlurOrPointerOverEvent: function (event) {
-                    this._lastKeyOrBlurEvent = this._currentKeyOrBlurEvent;
-                    switch (event.type) {
-                        case "keyup":
-                            if (event.keyCode === Key.shift) {
-                                this._currentKeyOrBlurEvent = null;
-                            } else {
-                                this._currentKeyOrBlurEvent = "keyboard";
-                            }
-                            break;
-                        case "focusout":
-                            //anchor element no longer in focus, clear up the stack
-                            this._currentKeyOrBlurEvent = null;
-                            break;
-                        default:
-                            break;
-
-                    }
-                },
-
-                _registerEventToListener: function (element, eventType) {
-                    var that = this;
-                    var handler = function (event) {
-                        that._captureLastKeyBlurOrPointerOverEvent(event);
-                        that._handleEvent(event);
-                    };
-                    _ElementUtilities._addEventListener(element, eventType, handler, false);
-
-                    this._eventListenerRemoveStack.push(function () {
-                        _ElementUtilities._removeEventListener(element, eventType, handler, false);
-                    });
-                },
-
-                _events: function () {
-                    for (var eventType in EVENTS_INVOKE) {
-                        this._registerEventToListener(this._anchorElement, eventType);
-                    }
-                    for (var eventType in EVENTS_UPDATE) {
-                        this._registerEventToListener(this._anchorElement, eventType);
-                    }
-                    for (eventType in EVENTS_DISMISS) {
-                        this._registerEventToListener(this._anchorElement, eventType);
-                    }
-                    this._registerEventToListener(this._anchorElement, "contextmenu");
-                    this._registerEventToListener(this._anchorElement, "MSHoldVisual");
-                },
-
-                _handleEvent: function (event) {
-                    var eventType = event._normalizedType || event.type;
-                    if (!this._triggerByOpen) {
-                        // If the anchor element has children, we should ignore events that are caused within the anchor element
-                        // Please note that we are not using event.target here as in bubbling phases from the child, the event target
-                        // is usually the child
-                        if (eventType in EVENTS_BY_CHILD && _ElementUtilities.eventWithinElement(this._anchorElement, event)) {
-                            return;
-                        } else if (isInvokeEvent(eventType, event.pointerType)) {
-                            if (event.pointerType === PT_TOUCH) {
-                                if (!this._isShown) {
-                                    this._showTrigger = "touch";
-                                }
-                                this._onInvoke("touch", "never", event);
-                            } else if (this._skipMouseOver && event.pointerType === PT_MOUSE && eventType === "pointerover") {
-                                // In browsers which use touch (instead of pointer) events, when the user taps their finger on
-                                // an element which has a tooltip, we receive the following sequence of events:
-                                //   - pointerdown (from touchstart; causes the Tooltip to show)
-                                //   - pointerup (from touchend; causes the Tooltip to hide)
-                                //   - pointerover (from mouseover; causes the Tooltip to show)
-                                // At the end, the Tooltip should be hidden but instead it'll be shown due to mouseover coming
-                                // after touchend. To avoid this problem, we use the _skipMouseOver flag to ignore the mouseover
-                                // that follows touchend.
-                                this._skipMouseOver = false;
-                                return;
-                            } else {
-                                var type = eventType.substring(0, 3) === "key" ? "keyboard" : "mouse";
-                                if (!this._isShown) {
-                                    this._showTrigger = type;
-                                }
-                                this._onInvoke(type, "auto", event);
-                            }
-                        } else if (eventType in EVENTS_UPDATE) {
-                            this._contactPoint = { x: event.clientX, y: event.clientY };
-                        } else if (isDismissEvent(eventType, event.pointerType)) {
-                            var eventTrigger;
-                            if (event.pointerType === PT_TOUCH) {
-                                if (eventType === "pointerup") {
-                                    this._skipMouseOver = true;
-                                    var that = this;
-                                    _BaseUtils._yieldForEvents(function () {
-                                        that._skipMouseOver = false;
-                                    });
-                                }
-                                eventTrigger = "touch";
-                            } else {
-                                eventTrigger = eventType.substring(0, 3) === "key" ? "keyboard" : "mouse";
-                            }
-                            if (eventType !== "focusout" && eventTrigger !== this._showTrigger) {
-                                return;
-                            }
-                            this._onDismiss();
-                        } else if (eventType === "contextmenu" || eventType === "MSHoldVisual") {
-                            event.preventDefault();
-                        }
-                    }
-                },
-
-                _onShowAnimationEnd: function () {
-                    if (this._shouldDismiss || this._disposed) {
-                        return;
-                    }
-                    this._raiseEvent("opened");
-                    if (this._domElement) {
-                        if (this._hideDelay !== "never") {
-                            var that = this;
-                            var delay = this._infotip ? Math.min(3 * messageDuration, HIDE_DELAY_MAX) : messageDuration;
-                            this._hideDelayTimer = this._setTimeout(function () {
-                                that._onDismiss();
-                            }, delay);
-                        }
-                    }
-                },
-
-                _onHideAnimationEnd: function () {
-                    _Global.document.body.removeEventListener("DOMNodeRemoved", this._removeTooltip, false);
-                    this._cleanUpDOM();
-                    // Once we remove the tooltip from the DOM, we should remove the aria tag from the anchor
-                    if (this._anchorElement) {
-                        this._anchorElement.removeAttribute("aria-describedby");
-                    }
-                    lastCloseTime = (new Date()).getTime();
-                    this._triggerByOpen = false;
-                    if (!this._disposed) {
-                        this._raiseEvent("closed");
-                    }
-                },
-
-                _decideOnDelay: function (type) {
-                    var value;
-                    this._useAnimation = true;
-
-                    if (type === "nodelay") {
-                        value = 0;
-                        this._useAnimation = false;
-                    } else {
-                        var curTime = (new Date()).getTime();
-                        // If the mouse is moved immediately from another anchor that has
-                        // tooltip open, we should use a shorter delay
-                        if (curTime - lastCloseTime <= RESHOW_THRESHOLD) {
-                            if (type === "touch") {
-                                value = this._infotip ? DELAY_RESHOW_INFOTIP_TOUCH : DELAY_RESHOW_NONINFOTIP_TOUCH;
-                            } else {
-                                value = this._infotip ? DELAY_RESHOW_INFOTIP_NONTOUCH : DELAY_RESHOW_NONINFOTIP_NONTOUCH;
-                            }
-                            this._useAnimation = false;
-                        } else if (type === "touch") {
-                            value = this._infotip ? DELAY_INITIAL_TOUCH_LONG : DELAY_INITIAL_TOUCH_SHORT;
-                        } else {
-                            value = this._infotip ? infoTooltipNonTouchShowDelay : nonInfoTooltipNonTouchShowDelay;
-                        }
-                    }
-                    return value;
-                },
-
-                // This function returns the anchor element's position in the Window coordinates.
-                _getAnchorPositionFromElementWindowCoord: function () {
-                    var rect = this._anchorElement.getBoundingClientRect();
-
-                    return {
-                        x: rect.left,
-                        y: rect.top,
-                        width: rect.width,
-                        height: rect.height
-                    };
-                },
-
-                _getAnchorPositionFromPointerWindowCoord: function (contactPoint) {
-                    return {
-                        x: contactPoint.x,
-                        y: contactPoint.y,
-                        width: 1,
-                        height: 1
-                    };
-                },
-
-                _canPositionOnSide: function (placement, viewport, anchor, tip) {
-                    var availWidth = 0, availHeight = 0;
-
-                    switch (placement) {
-                        case "top":
-                            availWidth = tip.width + this._offset;
-                            availHeight = anchor.y;
-                            break;
-                        case "bottom":
-                            availWidth = tip.width + this._offset;
-                            availHeight = viewport.height - anchor.y - anchor.height;
-                            break;
-                        case "left":
-                            availWidth = anchor.x;
-                            availHeight = tip.height + this._offset;
-                            break;
-                        case "right":
-                            availWidth = viewport.width - anchor.x - anchor.width;
-                            availHeight = tip.height + this._offset;
-                            break;
-                    }
-                    return ((availWidth >= tip.width + this._offset) && (availHeight >= tip.height + this._offset));
-                },
-
-                _positionOnSide: function (placement, viewport, anchor, tip) {
-                    var left = 0, top = 0;
-
-                    switch (placement) {
-                        case "top":
-                        case "bottom":
-                            // Align the tooltip to the anchor's center horizontally
-                            left = anchor.x + anchor.width / 2 - tip.width / 2;
-
-                            // If the left boundary is outside the window, set it to 0
-                            // If the right boundary is outside the window, set it to align with the window right boundary
-                            left = Math.min(Math.max(left, 0), viewport.width - tip.width - SAFETY_NET_GAP);
-
-                            top = (placement === "top") ? anchor.y - tip.height - this._offset : anchor.y + anchor.height + this._offset;
-                            break;
-                        case "left":
-                        case "right":
-                            // Align the tooltip to the anchor's center vertically
-                            top = anchor.y + anchor.height / 2 - tip.height / 2;
-
-                            // If the top boundary is outside the window, set it to 0
-                            // If the bottom boundary is outside the window, set it to align with the window bottom boundary
-                            top = Math.min(Math.max(top, 0), viewport.height - tip.height - SAFETY_NET_GAP);
-
-                            left = (placement === "left") ? anchor.x - tip.width - this._offset : anchor.x + anchor.width + this._offset;
-                            break;
-                    }
-
-                    // Actually set the position
-                    this._domElement.style.left = left + "px";
-                    this._domElement.style.top = top + "px";
-
-                    // Set the phantom's position and size
-                    this._phantomDiv.style.left = left + "px";
-                    this._phantomDiv.style.top = top + "px";
-                    this._phantomDiv.style.width = tip.width + "px";
-                    this._phantomDiv.style.height = tip.height + "px";
-                },
-
-                _position: function (contactType) {
-                    var viewport = { width: 0, height: 0 };
-                    var anchor = { x: 0, y: 0, width: 0, height: 0 };
-                    var tip = { width: 0, height: 0 };
-
-                    viewport.width = _Global.document.documentElement.clientWidth;
-                    viewport.height = _Global.document.documentElement.clientHeight;
-                    if (_Global.document.defaultView.getComputedStyle(_Global.document.body, null)["writing-mode"] === "tb-rl") {
-                        viewport.width = _Global.document.documentElement.clientHeight;
-                        viewport.height = _Global.document.documentElement.clientWidth;
-                    }
-
-                    if (this._contactPoint && (contactType === "touch" || contactType === "mouse")) {
-                        anchor = this._getAnchorPositionFromPointerWindowCoord(this._contactPoint);
-                    } else {
-                        // keyboard or programmatic is relative to element
-                        anchor = this._getAnchorPositionFromElementWindowCoord();
-                    }
-                    tip.width = this._domElement.offsetWidth;
-                    tip.height = this._domElement.offsetHeight;
-                    var fallback_order = {
-                        "top": ["top", "bottom", "left", "right"],
-                        "bottom": ["bottom", "top", "left", "right"],
-                        "left": ["left", "right", "top", "bottom"],
-                        "right": ["right", "left", "top", "bottom"]
-                    };
-                    if (isLeftHanded) {
-                        fallback_order.top[2] = "right";
-                        fallback_order.top[3] = "left";
-                        fallback_order.bottom[2] = "right";
-                        fallback_order.bottom[3] = "left";
-                    }
-
-                    // Try to position the tooltip according to the placement preference
-                    // We use this order:
-                    // 1. Try the preferred placement
-                    // 2. Try the opposite placement
-                    // 3. If the preferred placement is top or bottom, we should try left
-                    // and right (or right and left if left handed)
-                    // If the preferred placement is left or right, we should try top and bottom
-                    var order = fallback_order[this._placement];
-                    var length = order.length;
-                    for (var i = 0; i < length; i++) {
-                        if (i === length - 1 || this._canPositionOnSide(order[i], viewport, anchor, tip)) {
-                            this._positionOnSide(order[i], viewport, anchor, tip);
-                            break;
-                        }
-                    }
-                    return order[i];
-                },
-
-                _showTooltip: function (contactType) {
-                    // Give a chance to dismiss the tooltip before it starts to show
-                    if (this._shouldDismiss) {
-                        return;
-                    }
-                    this._isShown = true;
-                    this._raiseEvent("beforeopen");
-
-                    // If the anchor is not in the DOM tree, we don't create the tooltip
-                    if (!_Global.document.body.contains(this._anchorElement)) {
-                        return;
-                    }
-                    if (this._shouldDismiss) {
-                        return;
-                    }
-
-                    // If the contentElement is set to null or innerHTML set to null or "", we should NOT show the tooltip
-                    if (this._lastContentType === "element") { // Last update through contentElement option
-                        if (!this._contentElement) {
-                            this._isShown = false;
-                            return;
-                        }
-                    } else { // Last update through innerHTML option
-                        if (!this._innerHTML || this._innerHTML === "") {
-                            this._isShown = false;
-                            return;
-                        }
-                    }
-
-                    var that = this;
-                    this._removeTooltip = function (event) {
-                        var current = that._anchorElement;
-                        while (current) {
-                            if (event.target === current) {
-                                _Global.document.body.removeEventListener("DOMNodeRemoved", that._removeTooltip, false);
-                                that._cleanUpDOM();
-                                break;
-                            }
-                            current = current.parentNode;
-                        }
-                    };
-
-                    _Global.document.body.addEventListener("DOMNodeRemoved", this._removeTooltip, false);
-                    this._createTooltipDOM();
-                    this._position(contactType);
-                    if (this._useAnimation) {
-                        Animations.fadeIn(this._domElement)
-                            .then(this._onShowAnimationEnd.bind(this));
-                    } else {
-                        this._onShowAnimationEnd();
-                    }
-                },
-
-                _onInvoke: function (type, hide, event) {
-                    // Reset the dismiss flag
-                    this._shouldDismiss = false;
-
-                    // If the tooltip is already shown, ignore the current event
-                    if (this._isShown) {
-                        return;
-                    }
-
-                    // To handle keyboard support, we only want to display tooltip on the first tab key event only
-                    if (event && event.type === "keyup") {
-                        if (this._lastKeyOrBlurEvent === "keyboard" ||
-                            !this._lastKeyOrBlurEvent && event.keyCode !== Key.tab) {
-                            return;
-                        }
-                    }
-
-                    // Set the hide delay,
-                    this._hideDelay = hide;
-
-                    this._contactPoint = null;
-                    if (event) { // Open through interaction
-                        this._contactPoint = { x: event.clientX, y: event.clientY };
-                        // Tooltip display offset differently for touch events and non-touch events
-                        if (type === "touch") {
-                            this._offset = OFFSET_TOUCH;
-                        } else if (type === "keyboard") {
-                            this._offset = OFFSET_KEYBOARD;
-                        } else {
-                            this._offset = OFFSET_MOUSE;
-                        }
-                    } else { // Open Programmatically
-                        if (type === "touch") {
-                            this._offset = OFFSET_PROGRAMMATIC_TOUCH;
-                        } else {
-                            this._offset = OFFSET_PROGRAMMATIC_NONTOUCH;
-                        }
-                    }
-
-                    this._clearTimeout(this._delayTimer);
-                    this._clearTimeout(this._hideDelayTimer);
-
-                    // Set the delay time
-                    var delay = this._decideOnDelay(type);
-                    if (delay > 0) {
-                        var that = this;
-                        this._delayTimer = this._setTimeout(function () {
-                            that._showTooltip(type);
-                        }, delay);
-                    } else {
-                        this._showTooltip(type);
-                    }
-                },
-
-                _onDismiss: function () {
-                    // Set the dismiss flag so that we don't miss dismiss events
-                    this._shouldDismiss = true;
-
-                    // If the tooltip is already dismissed, ignore the current event
-                    if (!this._isShown) {
-                        return;
-                    }
-
-                    this._isShown = false;
-
-                    // Reset tooltip state
-                    this._showTrigger = "mouse";
-
-                    if (this._domElement) {
-                        this._raiseEvent("beforeclose");
-                        if (this._useAnimation) {
-                            Animations.fadeOut(this._domElement)
-                                .then(this._onHideAnimationEnd.bind(this));
-                        } else {
-                            this._onHideAnimationEnd();
-                        }
-                    } else {
-                        this._raiseEvent("beforeclose");
-                        this._raiseEvent("closed");
-                    }
-                },
-
-                _setTimeout: function (callback, delay) {
-                    return _Global.setTimeout(callback, delay);
-                },
-
-                _clearTimeout: function (id) {
-                    _Global.clearTimeout(id);
-                }
-            }, {
-
-                _DELAY_INITIAL_TOUCH_SHORT: {
-                    get: function () { return DELAY_INITIAL_TOUCH_SHORT; },
-                },
-
-                _DELAY_INITIAL_TOUCH_LONG: {
-                    get: function () { return DELAY_INITIAL_TOUCH_LONG ; }
-                },
-
-                _DEFAULT_MOUSE_HOVER_TIME: {
-                    get: function () { return DEFAULT_MOUSE_HOVER_TIME; }
-                },
-
-                _DEFAULT_MESSAGE_DURATION: {
-                    get: function () { return DEFAULT_MESSAGE_DURATION; }
-                },
-
-                _DELAY_RESHOW_NONINFOTIP_TOUCH: {
-                    get: function () { return DELAY_RESHOW_NONINFOTIP_TOUCH; }
-                },
-
-                _DELAY_RESHOW_NONINFOTIP_NONTOUCH: {
-                    get: function () { return DELAY_RESHOW_NONINFOTIP_NONTOUCH; }
-                },
-
-                _DELAY_RESHOW_INFOTIP_TOUCH: {
-                    get: function () { return DELAY_RESHOW_INFOTIP_TOUCH; }
-                },
-
-                _DELAY_RESHOW_INFOTIP_NONTOUCH: {
-                    get: function () { return DELAY_RESHOW_INFOTIP_NONTOUCH; }
-                },
-
-                _RESHOW_THRESHOLD: {
-                    get: function () { return RESHOW_THRESHOLD; }
-                },
-
-                _HIDE_DELAY_MAX: {
-                    get: function () { return HIDE_DELAY_MAX; }
-                },
-            });
-        })
-    });
-
-});
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('WinJS/Controls/Rating',[
-    '../Core/_Global',
-    '../Core/_Base',
-    '../Core/_ErrorFromName',
-    '../Core/_Events',
-    '../Core/_Resources',
-    '../Utilities/_Control',
-    '../Utilities/_ElementUtilities',
-    '../Utilities/_Hoverable',
-    '../Utilities/_SafeHtml',
-    './Tooltip',
-    'require-style!less/desktop/controls',
-    'require-style!less/phone/controls'
-    ], function ratingInit(_Global,_Base, _ErrorFromName, _Events, _Resources, _Control, _ElementUtilities, _Hoverable, _SafeHtml, Tooltip) {
-    "use strict";
-
-    // Rating control implementation
-    _Base.Namespace.define("WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.Rating">
-        /// The Rating control allows users to give a number on a scale of 1 to maxRating (5 is the default).
-        /// </summary>
-        /// <compatibleWith platform="Windows" minVersion="8.0"/>
-        /// </field>
-        /// <icon src="ui_winjs.ui.rating.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.rating.16x16.png" width="16" height="16" />
-        /// <htmlSnippet><![CDATA[<div data-win-control="WinJS.UI.Rating"></div>]]></htmlSnippet>
-        /// <event name="previewchange" bubbles="false" locid="WinJS.UI.Rating_e:previewchange">Raised when the user chooses a new tentative rating but hasn't commited the change.</event>
-        /// <event name="cancel" bubbles="false" locid="WinJS.UI.Rating_e:cancel">Raised when the user finishes interacting with the rating control without committing a tentative rating.</event>
-        /// <event name="change" bubbles="false" locid="WinJS.UI.Rating_e:change">Raised when the user commits a change to the userRating.</event>
-        /// <part name="rating" class="win-rating" locid="WinJS.UI.Rating_part:rating">The entire Rating control.</part>
-        /// <part name="average-empty" class="win-star win-average win-empty" locid="WinJS.UI.Rating_part:average-empty">The empty star when the Rating control shows the average rating.</part>
-        /// <part name="average-full" class="win-star win-average win-full" locid="WinJS.UI.Rating_part:average-full">The full star when the Rating control shows the average rating.</part>
-        /// <part name="user-empty" class="win-star win-user win-empty" locid="WinJS.UI.Rating_part:user-empty">The empty star when the Rating control shows the user rating.</part>
-        /// <part name="user-full" class="win-star win-user win-full" locid="WinJS.UI.Rating_part:user-full">The full star when the Rating control shows the user rating.</part>
-        /// <part name="tentative-empty" class="win-star win-tentative win-empty" locid="WinJS.UI.Rating_part:tentative-empty">The empty star when the Rating control shows the tentative rating.</part>
-        /// <part name="tentative-full" class="win-star win-tentative win-full" locid="WinJS.UI.Rating_part:tentative-full">The full star when the Rating control shows the tentative rating.</part>
-        /// <part name="disabled-empty" class="win-star win-disabled win-empty" locid="WinJS.UI.Rating_part:disabled-empty">The empty star when the control is disabled.</part>
-        /// <part name="disabled-full" class="win-star win-disabled win-full" locid="WinJS.UI.Rating_part:disabled-full">The full star when the control is disabled.</part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        Rating: _Base.Namespace._lazy(function () {
-            var createEvent = _Events._createEventProperty;
-
-            var strings = {
-                get averageRating() { return _Resources._getWinJSString("ui/averageRating").value; },
-                get clearYourRating() { return _Resources._getWinJSString("ui/clearYourRating").value; },
-                get tentativeRating() { return _Resources._getWinJSString("ui/tentativeRating").value; },
-                get tooltipStringsIsInvalid() { return "Invalid argument: tooltipStrings must be null or an array of strings."; },
-                get unrated() { return _Resources._getWinJSString("ui/unrated").value; },
-                get userRating() { return _Resources._getWinJSString("ui/userRating").value; },
-            };
-
-            // Constants definition
-            var DEFAULT_MAX_RATING = 5,
-                DEFAULT_DISABLED = false,
-                CANCEL = "cancel",
-                CHANGE = "change",
-                PREVIEW_CHANGE = "previewchange",
-                MOUSE_LBUTTON = 0, // Event attribute to indicate a mouse left click
-                PT_TOUCH = _ElementUtilities._MSPointerEvent.MSPOINTER_TYPE_TOUCH || "touch", // Pointer type to indicate a touch event
-                PT_PEN = _ElementUtilities._MSPointerEvent.MSPOINTER_TYPE_PEN || "pen", // Pointer type to indicate a pen event
-                PT_MOUSE = _ElementUtilities._MSPointerEvent.MSPOINTER_TYPE_MOUSE || "mouse"; // Pointer type to indicate a mouse event
-
-            var hiddenAverageRatingCss = "padding-left: 0px; padding-right: 0px; border-left: 0px; border-right: 0px; -ms-flex: none; -webkit-flex: none; flex: none; display: none";
-
-            // CSS class names
-            var msRating = "win-rating",
-                msRatingEmpty = "win-star win-empty",
-                msRatingAverageEmpty = "win-star win-average win-empty",
-                msRatingAverageFull = "win-star win-average win-full",
-                msRatingUserEmpty = "win-star win-user win-empty",
-                msRatingUserFull = "win-star win-user win-full",
-                msRatingTentativeEmpty = "win-star win-tentative win-empty",
-                msRatingTentativeFull = "win-star win-tentative win-full",
-                msRatingDisabled = "win-disabled",
-                msAverage = "win-average",
-                msUser = "win-user";
-
-            return _Base.Class.define(function Rating_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.Rating.Rating">
-                /// <summary locid="WinJS.UI.Rating.constructor">
-                /// Creates a new Rating.
-                /// </summary>
-                /// <param name="element" domElement="true" locid="WinJS.UI.Rating.constructor_p:element">
-                /// The DOM element that hosts the new Rating.
-                /// </param>
-                /// <param name="options" type="Object" locid="WinJS.UI.Rating.constructor_p:options">
-                /// An object that contains one or more property/value pairs to apply to the new control.
-                /// Each property of the options object corresponds to one of the control's properties or events.
-                /// Event names must begin with "on". For example, to provide a handler for the cancel event,
-                /// add a property named "oncancel" to the options object and set its value to the event handler.
-                /// This parameter is optional.
-                /// </param>
-                /// <returns type="WinJS.UI.Rating" locid="WinJS.UI.Rating.constructor_returnValue">
-                /// The new Rating.
-                /// </returns>
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </signature>
-                this._disposed = false;
-
-                element = element || _Global.document.createElement("div");
-                options = options || {};
-                this._element = element;
-                _ElementUtilities.addClass(this._element, "win-disposable");
-
-                //initialize properties with default value
-                this._userRating = 0;
-                this._averageRating = 0;
-                this._disabled = DEFAULT_DISABLED;
-                this._enableClear = true;
-                this._tooltipStrings = [];
-
-                this._controlUpdateNeeded = false;
-                this._setControlSize(options.maxRating);
-                if (!options.tooltipStrings) {
-                    this._updateTooltips(null);
-                }
-                _Control.setOptions(this, options);
-                this._controlUpdateNeeded = true;
-                this._forceLayout();
-
-                // Register for notification when we are added to DOM
-                _ElementUtilities._addInsertedNotifier(this._element);
-
-                // Remember ourselves
-                element.winControl = this;
-                this._events();
-            }, {
-                /// <field type="Number" integer="true" locid="WinJS.UI.Rating.maxRating" helpKeyword="WinJS.UI.Rating.maxRating">
-                /// Gets or sets the maximum possible rating value. The default is 5.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                maxRating: {
-                    get: function () {
-                        return this._maxRating;
-                    },
-                    set: function (value) {
-                        this._setControlSize(value);
-                        this._forceLayout();
-                    }
-                },
-
-                /// <field type="Number" integer="true" locid="WinJS.UI.Rating.userRating" helpKeyword="WinJS.UI.Rating.userRating">
-                /// Gets or sets the user's rating. This value must be between greater than or equal to zero and less than or equal to the maxRating.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                userRating: {
-                    get: function () {
-                        return this._userRating;
-                    },
-                    set: function (value) {
-                        // Coerce value to a positive integer between 0 and maxRating
-                        this._userRating = Math.max(0, Math.min(Number(value) >> 0, this._maxRating));
-                        this._updateControl();
-                    }
-                },
-
-                /// <field type="Number" locid="WinJS.UI.Rating.averageRating" helpKeyword="WinJS.UI.Rating.averageRating">
-                /// Gets or sets the average rating as a float value. This value must be [equal to zero] OR [greater than or equal to 1 AND less than or equal to the maxRating].
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                averageRating: {
-                    get: function () {
-                        return this._averageRating;
-                    },
-                    set: function (value) {
-                        // Coerce value to either 0 or a positive float between 1 and maxRating
-                        this._averageRating = (Number(value) < 1) ? 0 : Math.min(Number(value) || 0, this._maxRating);
-                        if (this._averageRatingElement) { // After the control has been created..
-                            this._ensureAverageMSStarRating(); // ..ensure correct msStarRating is given to 'average-rating' star.
-                        }
-                        this._updateControl();
-                    }
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.Rating.disabled" helpKeyword="WinJS.UI.Rating.disabled">
-                /// Gets or sets a value that specifies whether the control is disabled. When the control is disabled, the user can't specify a
-                /// new rating or modify an existing rating.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                disabled: {
-                    get: function () {
-                        return this._disabled;
-                    },
-                    set: function (value) {
-                        this._disabled = !!value;
-                        if (this._disabled) {
-                            this._clearTooltips();
-                        }
-                        this._updateTabIndex();
-                        this._updateControl();
-                    }
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.Rating.enableClear" helpKeyword="WinJS.UI.Rating.enableClear">
-                /// Gets or sets whether the control lets the user clear the rating.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                enableClear: {
-                    get: function () {
-                        return this._enableClear;
-                    },
-                    set: function (value) {
-                        this._enableClear = !!value;
-                        this._setAriaValueMin();
-                        this._updateControl();
-                    }
-                },
-
-                /// <field type="Array" locid="WinJS.UI.Rating.tooltipStrings" helpKeyword="WinJS.UI.Rating.tooltipStrings">
-                /// Gets or sets a set of descriptions to show for rating values in the tooltip. The array must
-                /// contain a string for each available rating value, and it can contain an optional string
-                /// (at the end of the array) for the clear rating option.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                tooltipStrings: {
-                    get: function () {
-                        return this._tooltipStrings;
-                    },
-                    set: function (value) {
-                        if (typeof value !== "object") {
-                            throw new _ErrorFromName("WinJS.UI.Rating.TooltipStringsIsInvalid", strings.tooltipStringsIsInvalid);
-                        }
-                        this._updateTooltips(value);
-                        this._updateAccessibilityRestState();
-                    }
-                },
-
-                /// <field type="HTMLElement" domElement="true" hidden="true" locid="WinJS.UI.Rating.element" helpKeyword="WinJS.UI.Rating.element">
-                /// Gets the DOM element that hosts the Rating.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                element: {
-                    get: function () {
-                        return this._element;
-                    }
-                },
-
-                /// <field type="Function" locid="WinJS.UI.Rating.oncancel" helpKeyword="WinJS.UI.Rating.oncancel">
-                /// Raised when the user finishes interacting with the rating control without committing a tentative rating.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                oncancel: createEvent(CANCEL),
-
-                /// <field type="Function" locid="WinJS.UI.Rating.onchange" helpKeyword="WinJS.UI.Rating.onchange">
-                /// Raised when the user commits a change to the userRating.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                onchange: createEvent(CHANGE),
-
-                /// <field type="Function" locid="WinJS.UI.Rating.onpreviewchange" helpKeyword="WinJS.UI.Rating.onpreviewchange">
-                /// Raised when the user is choosing a new tentative Rating.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                onpreviewchange: createEvent(PREVIEW_CHANGE),
-
-                dispose: function () {
-                    /// <signature helpKeyword="WinJS.UI.Rating.dispose">
-                    /// <summary locid="WinJS.UI.Rating.dispose">
-                    /// Disposes this Rating.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                    if (this._disposed) {
-                        return;
-                    }
-                    this._disposed = true;
-
-                    for (var i = 0; i < this._toolTips.length; i++) {
-                        this._toolTips[i].dispose();
-                    }
-                    this._toolTips = null;
-                },
-
-                addEventListener: function (eventName, eventCallBack, capture) {
-                    /// <signature helpKeyword="WinJS.UI.Rating.addEventListener">
-                    /// <summary locid="WinJS.UI.Rating.addEventListener">
-                    /// Registers an event handler for the specified event.
-                    /// </summary>
-                    /// <param name="eventName" type="String" locid="WinJS.UI.Rating.addEventListener_p:eventName">The name of the event.</param>
-                    /// <param name="eventCallback" type="Function" locid="WinJS.UI.Rating.addEventListener_p:eventCallback">The event handler function to associate with this event.</param>
-                    /// <param name="capture" type="Boolean" locid="WinJS.UI.Rating.addEventListener_p:capture">Set to true to register the event handler for the capturing phase; set to false to register for the bubbling phase.</param>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-
-                    this._element.addEventListener(eventName, eventCallBack, capture);
-                },
-
-                removeEventListener: function (eventName, eventCallBack, capture) {
-                    /// <signature helpKeyword="WinJS.UI.Rating.removeEventListener">
-                    /// <summary locid="WinJS.UI.Rating.removeEventListener">
-                    /// Unregisters an event handler for the specified event.
-                    /// </summary>
-                    /// <param name="eventName" type="String" locid="WinJS.UI.Rating.removeEventListener_p:eventName">The name of the event.</param>
-                    /// <param name="eventCallback" type="Function" locid="WinJS.UI.Rating.removeEventListener_p:eventCallback">The event handler function to remove.</param>
-                    /// <param name="capture" type="Boolean" locid="WinJS.UI.Rating.removeEventListener_p:capture">Set to true to unregister the event handler for the capturing phase; otherwise, set to false to unregister the event handler for the bubbling phase.</param>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-
-                    return this._element.removeEventListener(eventName, eventCallBack, capture);
-                },
-
-                _forceLayout: function () {
-                    if (!this._controlUpdateNeeded) {
-                        return;
-                    }
-
-                    // Disable incremental update during redraw, postpone till all properties set
-                    var updateNeeded = false;
-                    this._updateControl = function () {
-                        updateNeeded = true;
-                    };
-
-                    // Coerce userRating and averageRating to conform to maxRating
-                    this.userRating = this._userRating;
-                    this.averageRating = this._averageRating;
-
-                    // Reset properties
-                    this._lastEventWasChange = false;
-                    this._lastEventWasCancel = false;
-                    this._tentativeRating = -1;
-                    this._captured = false;
-                    this._pointerDownFocus = false;
-                    this._elements = [];
-                    this._toolTips = [];
-                    this._clearElement = null;
-
-                    // Element that is used for showing average rating
-                    this._averageRatingElement = null;
-                    this._elementWidth = null;
-                    this._elementPadding = null;
-                    this._elementBorder = null;
-                    this._floatingValue = 0;
-
-                    this._createControl();
-                    this._setAccessibilityProperties();
-
-                    delete this._updateControl;
-                    if (updateNeeded) {
-                        this._updateControl();
-                    }
-
-                },
-
-                // Hide the help star if the control is not showing average rating
-                _hideAverageRating: function () {
-                    if (!this._averageRatingHidden) {
-                        this._averageRatingHidden = true;
-                        this._averageRatingElement.style.cssText = hiddenAverageRatingCss;
-                    }
-                },
-
-                _createControl: function () {
-                    // rating control could have more than one class name
-                    _ElementUtilities.addClass(this._element, msRating);
-
-                    var html = "";
-                    this._averageRatingHidden = true;
-                    // create control
-                    for (var i = 0; i <= this._maxRating; i++) {
-                        if (i === this._maxRating) {
-                            html = html + "<div class='" + msRatingAverageFull + "' style='" + hiddenAverageRatingCss + "'></div>";
-                        } else {
-                            html = html + "<div class='" + msRatingUserEmpty + "'></div>";
-                        }
-                    }
-                    _SafeHtml.setInnerHTMLUnsafe(this._element, html);
-                    var oneStar = this._element.firstElementChild;
-                    var i = 0;
-                    while (oneStar) {
-                        this._elements[i] = oneStar;
-                        if (i < this._maxRating) {
-                            _ElementUtilities.data(oneStar).msStarRating = i + 1;
-                        }
-                        oneStar = oneStar.nextElementSibling;
-                        i++;
-                    }
-                    this._averageRatingElement = this._elements[this._maxRating];
-                    this._ensureAverageMSStarRating();
-
-                    // add focus capability relative to element's position in the document
-                    this._updateTabIndex();
-                },
-
-                _setAriaValueMin: function () {
-                    this._element.setAttribute("aria-valuemin", this._enableClear ? 0 : 1);
-                },
-
-                _setAccessibilityProperties: function () {
-                    this._element.setAttribute("role", "slider");
-                    this._element.setAttribute("aria-valuemax", this._maxRating);
-                    this._setAriaValueMin();
-                    this._updateAccessibilityRestState();
-                },
-
-                _getText: function (number) {
-                    var string = this._tooltipStrings[number];
-                    if (string) {
-                        var tempDiv = _Global.document.createElement("div");
-                        tempDiv.innerHTML = string;
-                        return tempDiv.textContent;
-                    } else if (number === this._maxRating) {
-                        return strings.clearYourRating;
-                    } else {
-                        return number + 1;
-                    }
-                },
-
-                _updateAccessibilityRestState: function () {
-                    var element = this._element;
-                    this._ariaValueNowMutationObserver && this._ariaValueNowMutationObserver.disconnect();
-                    element.setAttribute("aria-readOnly", this._disabled);
-
-                    if (this._userRating !== 0) {
-                        element.setAttribute("aria-valuenow", this._userRating);
-                        element.setAttribute("aria-label", strings.userRating);
-                        element.setAttribute("aria-valuetext", this._getText(this._userRating - 1));
-                    } else if (this._averageRating !== 0) {
-                        element.setAttribute("aria-valuenow", this._averageRating);
-                        element.setAttribute("aria-label", strings.averageRating);
-                        element.setAttribute("aria-valuetext", this._averageRating);
-                    } else {
-                        element.setAttribute("aria-valuenow", strings.unrated);
-                        element.setAttribute("aria-label", strings.userRating);
-                        element.setAttribute("aria-valuetext", strings.unrated);
-                    }
-
-                    this._ariaValueNowMutationObserver && this._ariaValueNowMutationObserver.observe(this._element, { attributes: true, attributeFilter: ["aria-valuenow"] });
-                },
-
-                _updateAccessibilityHoverState: function () {
-                    var element = this._element;
-                    this._ariaValueNowMutationObserver && this._ariaValueNowMutationObserver.disconnect();
-                    element.setAttribute("aria-readOnly", this._disabled);
-
-                    if (this._tentativeRating > 0) {
-                        element.setAttribute("aria-label", strings.tentativeRating);
-                        element.setAttribute("aria-valuenow", this._tentativeRating);
-                        element.setAttribute("aria-valuetext", this._getText(this._tentativeRating - 1));
-                    } else if (this._tentativeRating === 0) {
-                        element.setAttribute("aria-valuenow", strings.unrated);
-                        element.setAttribute("aria-label", strings.tentativeRating);
-                        element.setAttribute("aria-valuetext", this._getText(this._maxRating));
-                    } else {
-                        //shouldn't get here
-                        element.setAttribute("aria-valuenow", strings.unrated);
-                        element.setAttribute("aria-label", strings.tentativeRating);
-                        element.setAttribute("aria-valuetext", strings.unrated);
-                    }
-
-                    this._ariaValueNowMutationObserver && this._ariaValueNowMutationObserver.observe(this._element, { attributes: true, attributeFilter: ["aria-valuenow"] });
-                },
-
-                _ensureTooltips: function () {
-                    if (this.disabled) {
-                        return;
-                    }
-
-                    if (this._toolTips.length === 0) {
-                        for (var i = 0; i < this._maxRating; i++) {
-                            this._toolTips[i] = new Tooltip.Tooltip(this._elements[i]);
-                        }
-                    }
-                },
-
-                // decrement tentative rating by one
-                _decrementRating: function () {
-                    this._closeTooltip();
-                    var firePreviewChange = true;
-                    if ((this._tentativeRating === 0) || ((this._tentativeRating === -1) && (this._userRating === 0))) {
-                        firePreviewChange = false;
-                    } else {
-                        if (this._tentativeRating > 0) {
-                            this._tentativeRating--;
-                        } else if (this._tentativeRating === -1) {
-                            if (this._userRating !== 0) {
-                                if (this._userRating > 0) {
-                                    this._tentativeRating = this._userRating - 1;
-                                } else {
-                                    this._tentativeRating = 0;
-                                }
-                            } else {
-                                this._tentativeRating = 0;
-                            }
-                        }
-
-                        if ((this._tentativeRating === 0) && !this._enableClear) {
-                            this._tentativeRating = 1;
-                            firePreviewChange = false;
-                        }
-                    }
-
-                    this._showTentativeRating(firePreviewChange, "keyboard");
-                },
-
-                _events: function () {
-                    var that = this;
-                    function ratingHandler(eventName) {
-                        return {
-                            name: eventName,
-                            lowerCaseName: eventName.toLowerCase(),
-                            handler: function (event) {
-                                var fn = that["_on" + eventName];
-                                if (fn) {
-                                    fn.apply(that, [event]);
-                                }
-                            }
-                        };
-                    }
-
-                    var eventsRegisteredInLowerCase = [
-                            ratingHandler("KeyDown"),
-                            ratingHandler("FocusOut"),
-                            ratingHandler("FocusIn"),
-                            ratingHandler("PointerCancel"),
-                            ratingHandler("PointerDown"),
-                            ratingHandler("PointerMove"),
-                            ratingHandler("PointerOver"),
-                            ratingHandler("PointerUp"),
-                            ratingHandler("PointerOut")
-                    ];
-                    var events = [
-                        ratingHandler("WinJSNodeInserted")
-                    ];
-
-                    var i;
-                    for (i = 0; i < eventsRegisteredInLowerCase.length; ++i) {
-                        _ElementUtilities._addEventListener(this._element, eventsRegisteredInLowerCase[i].lowerCaseName, eventsRegisteredInLowerCase[i].handler, false);
-                    }
-                    for (i = 0; i < events.length; ++i) {
-                        this._element.addEventListener(events[i].name, events[i].handler, false);
-                    }
-
-                    this._ariaValueNowMutationObserver = new _ElementUtilities._MutationObserver(this._ariaValueNowChanged.bind(this));
-                    this._ariaValueNowMutationObserver.observe(this._element, { attributes: true, attributeFilter: ["aria-valuenow"] });
-                },
-
-                _onWinJSNodeInserted: function () {
-                    this._recalculateStarProperties();
-                    this._updateControl();
-                },
-
-                _recalculateStarProperties: function () {
-                    var j = 0;
-                    // If the average rating is 1 we do not have correct padding on the first star so we are reading it from the second star
-                    // When we create average rating star we are creating it from 2 divs - stars. The first one is the average rating star the second one is the regular rating star.
-                    // If the average rating is 1 we are creating that rating on the following way - The first part of star
-                    // (without right padding, right border) is average rating star - the second part is regular star that does not have left padding and left border anymore
-                    // (we set on 0 to create average rating star). In that situation the average rating star has correct left padding and left border.
-                    if (this._averageRating === 1) {
-                        j = 1;
-                    }
-                    var style = _Global.getComputedStyle(this._elements[j]);
-                    this._elementWidth = style.width;
-                    if (_Global.getComputedStyle(this._element).direction === "rtl") {
-                        this._elementPadding = style.paddingRight;
-                        this._elementBorder = style.borderRight;
-                    } else {
-                        this._elementPadding = style.paddingLeft;
-                        this._elementBorder = style.borderLeft;
-                    }
-                },
-
-                // Hide the help star if the control is not showing average rating
-                _hideAverageStar: function () {
-                    // check if this average rating control
-                    if (this._averageRating !== 0) {
-                        // hide the empty star
-                        this._resetAverageStar(false);
-                    }
-                },
-
-                // increase tentative rating by one
-                _incrementRating: function () {
-                    this._closeTooltip();
-                    var firePreviewChange = true;
-                    if ((this._tentativeRating === this._maxRating) || ((this._tentativeRating === -1) && (this._userRating === this._maxRating))) {
-                        firePreviewChange = false;
-                    }
-
-                    if (this._tentativeRating !== -1) {
-                        if (this._tentativeRating < this._maxRating) {
-                            this._tentativeRating++;
-                        }
-                    } else {
-                        if (this._userRating !== 0) {
-                            if (this._userRating < this._maxRating) {
-                                this._tentativeRating = this._userRating + 1;
-                            } else {
-                                this._tentativeRating = this._maxRating;
-                            }
-                        } else {
-                            this._tentativeRating = 1;
-                        }
-                    }
-                    this._showTentativeRating(firePreviewChange, "keyboard");
-                },
-
-                _ariaValueNowChanged: function () {
-                    if (!this._disabled) {
-                        var attrNode = this._element.getAttributeNode("aria-valuenow");
-                        if (attrNode !== null) {
-                            var value = Number(attrNode.nodeValue);
-                            if (this.userRating !== value) {
-                                this.userRating = value;
-                                this._tentativeRating = this._userRating;
-                                this._raiseEvent(CHANGE, this._userRating);
-                            }
-                        }
-                    }
-                },
-
-                _onPointerCancel: function () {
-                    this._showCurrentRating();
-                    if (!this._lastEventWasChange) {
-                        this._raiseEvent(CANCEL, null);
-                    }
-                    this._captured = false;
-                },
-
-                _onPointerDown: function (eventObject) {
-                    if (eventObject.pointerType === PT_MOUSE && eventObject.button !== MOUSE_LBUTTON) {
-                        return; // Ignore any mouse clicks that are not left clicks.
-                    }
-                    if (!this._captured) { // Rating Control does not support multi-touch, ignore mspointerdown messages if the control already has capture.
-                        this._pointerDownAt = { x: eventObject.clientX, y: eventObject.clientY };
-                        this._pointerDownFocus = true;
-                        if (!this._disabled) {
-                            // Only capture the event when active to support block panning
-                            _ElementUtilities._setPointerCapture(this._element, eventObject.pointerId);
-                            this._captured = true;
-
-                            if (eventObject.pointerType === PT_TOUCH) {
-                                this._tentativeRating = _ElementUtilities.data(eventObject.target).msStarRating || 0;
-                                // change states for all stars
-                                this._setStarClasses(msRatingTentativeFull, this._tentativeRating, msRatingTentativeEmpty);
-                                this._hideAverageStar();
-                                this._updateAccessibilityHoverState();
-                                this._openTooltip("touch");
-                                this._raiseEvent(PREVIEW_CHANGE, this._tentativeRating);
-                            } else {
-                                this._openTooltip("mousedown");
-                            }
-                        }
-                    }
-                },
-
-                _onCapturedPointerMove: function (eventObject, tooltipType) {
-                    // Manual hit-test because we capture the pointer
-                    // If the pointer is already down, we use its information.
-                    var pointerAt = this._pointerDownAt || { x: eventObject.clientX, y: eventObject.clientY };
-
-                    var star;
-                    var hit = _ElementUtilities._elementsFromPoint(eventObject.clientX, pointerAt.y);
-                    if (hit) {
-                        for (var i = 0, len = hit.length; i < len; i++) {
-                            var item = hit[i];
-                            if (item.getAttribute("role") === "tooltip") {
-                                return;
-                            }
-                            if (_ElementUtilities.hasClass(item, "win-star")) {
-                                star = item;
-                                break;
-                            }
-                        }
-                    }
-                    var starNum;
-                    if (star && (star.parentElement === this._element)) {
-                        starNum = _ElementUtilities.data(star).msStarRating || 0;
-                    } else {
-                        var left = 0, right = this.maxRating;
-                        if (_Global.getComputedStyle(this._element).direction === "rtl") {
-                            left = right;
-                            right = 0;
-                        }
-                        if (eventObject.clientX < pointerAt.x) {
-                            starNum = left;
-                        } else {
-                            starNum = right;
-                        }
-                    }
-
-                    var firePreviewChange = false;
-                    var newTentativeRating = Math.min(Math.ceil(starNum), this._maxRating);
-                    if ((newTentativeRating === 0) && !this._enableClear) {
-                        newTentativeRating = 1;
-                    }
-                    if (newTentativeRating !== this._tentativeRating) {
-                        this._closeTooltip();
-                        firePreviewChange = true;
-                    }
-
-                    this._tentativeRating = newTentativeRating;
-                    this._showTentativeRating(firePreviewChange, tooltipType);
-                    eventObject.preventDefault();
-                },
-
-                _onPointerMove: function (eventObject) {
-                    if (this._captured) {
-                        if (eventObject.pointerType === PT_TOUCH) {
-                            this._onCapturedPointerMove(eventObject, "touch");
-                        } else {
-                            this._onCapturedPointerMove(eventObject, "mousedown");
-                        }
-                    }
-                },
-
-                _onPointerOver: function (eventObject) {
-                    if (!this._disabled && (eventObject.pointerType === PT_PEN || eventObject.pointerType === PT_MOUSE)) {
-                        this._onCapturedPointerMove(eventObject, "mouseover");
-                    }
-                },
-
-                _onPointerUp: function (eventObject) {
-                    if (this._captured) {
-                        _ElementUtilities._releasePointerCapture(this._element, eventObject.pointerId);
-                        this._captured = false;
-                        this._onUserRatingChanged();
-                    }
-                    this._pointerDownAt = null;
-                },
-
-                _onFocusOut: function () {
-                    if (!this._captured) {
-                        this._onUserRatingChanged();
-                        if (!this._lastEventWasChange && !this._lastEventWasCancel) {
-                            this._raiseEvent(CANCEL, null);
-                        }
-                    }
-                },
-
-                _onFocusIn: function () {
-                    if (!this._pointerDownFocus) {
-                        // if the control is read only don't hover stars
-                        if (!this._disabled) {
-                            // change states for all previous stars
-                            // but only if user didnt vote
-                            if (this._userRating === 0) {
-                                for (var i = 0; i < this._maxRating; i++) {
-                                    this._elements[i].className = msRatingTentativeEmpty;
-                                }
-                            }
-                            // hide the help star
-                            this._hideAverageStar();
-                        }
-
-                        if (this._userRating !== 0) {
-                            this._raiseEvent(PREVIEW_CHANGE, this._userRating);
-                        } else {
-                            this._raiseEvent(PREVIEW_CHANGE, 0);
-                        }
-                        this._tentativeRating = this._userRating;
-                    }
-                    this._pointerDownFocus = false;
-                },
-
-                _onKeyDown: function (eventObject) {
-                    var Key = _ElementUtilities.Key;
-                    var keyCode = eventObject.keyCode;
-                    var rtlString = _Global.getComputedStyle(this._element).direction;
-                    var handled = true;
-                    switch (keyCode) {
-                        case Key.enter: // Enter
-                            this._onUserRatingChanged();
-                            break;
-                        case Key.tab: //Tab
-                            this._onUserRatingChanged();
-                            handled = false;
-                            break;
-                        case Key.escape: // escape
-                            this._showCurrentRating();
-
-                            if (!this._lastEventWasChange) {
-                                this._raiseEvent(CANCEL, null);
-                            }
-
-                            break;
-                        case Key.leftArrow: // Arrow Left
-                            if (rtlString === "rtl") {
-                                this._incrementRating();
-                            } else {
-                                this._decrementRating();
-                            }
-                            break;
-                        case Key.upArrow: // Arrow Up
-                            this._incrementRating();
-                            break;
-                        case Key.rightArrow: // Arrow Right
-                            if (rtlString === "rtl") {
-                                this._decrementRating();
-                            } else {
-                                this._incrementRating();
-                            }
-                            break;
-                        case Key.downArrow: // Arrow Down
-                            this._decrementRating();
-                            break;
-                        default:
-                            var number = 0;
-                            if ((keyCode >= Key.num0) && (keyCode <= Key.num9)) {
-                                number = Key.num0;
-                            } else if ((keyCode >= Key.numPad0) && (keyCode <= Key.numPad9)) {
-                                number = Key.numPad0;
-                            }
-
-                            if (number > 0) {
-                                var firePreviewChange = false;
-                                var newTentativeRating = Math.min(keyCode - number, this._maxRating);
-                                if ((newTentativeRating === 0) && !this._enableClear) {
-                                    newTentativeRating = 1;
-                                }
-                                if (newTentativeRating !== this._tentativeRating) {
-                                    this._closeTooltip();
-                                    firePreviewChange = true;
-                                }
-                                this._tentativeRating = newTentativeRating;
-                                this._showTentativeRating(firePreviewChange, "keyboard");
-                            } else {
-                                handled = false;
-                            }
-                            break;
-                    }
-
-                    if (handled) {
-                        eventObject.stopPropagation();
-                        eventObject.preventDefault();
-                    }
-                },
-
-                _onPointerOut: function (eventObject) {
-                    if (!this._captured && !_ElementUtilities.eventWithinElement(this._element, eventObject)) {
-                        this._showCurrentRating();
-                        if (!this._lastEventWasChange) {
-                            // only fire cancel event if we move out of the rating control, and if
-                            // user did not change rating on the control
-                            this._raiseEvent(CANCEL, null);
-                        }
-                    }
-                },
-
-                _onUserRatingChanged: function () {
-                    if (!this._disabled) {
-                        this._closeTooltip();
-                        // Only submit a change event if the user has altered the rating control value via PREVIEWCHANGE event.
-                        if (this._userRating !== this._tentativeRating && !this._lastEventWasCancel && !this._lastEventWasChange) {
-                            this.userRating = this._tentativeRating;
-                            this._raiseEvent(CHANGE, this._userRating);
-                        } else {
-                            this._updateControl();
-                        }
-                    }
-                },
-
-                _raiseEvent: function (eventName, tentativeRating) {
-                    if (!this._disabled) {
-                        this._lastEventWasChange = (eventName === CHANGE);
-                        this._lastEventWasCancel = (eventName === CANCEL);
-                        if (_Global.document.createEvent) {
-                            var event = _Global.document.createEvent("CustomEvent");
-                            event.initCustomEvent(eventName, false, false, { tentativeRating: tentativeRating });
-                            this._element.dispatchEvent(event);
-                        }
-                    }
-                },
-
-                _resetNextElement: function (prevState) {
-                    if (this._averageRatingElement.nextSibling !== null) {
-                        _ElementUtilities._setFlexStyle(this._averageRatingElement.nextSibling, {grow: 1, shrink: 1});
-                        var style = this._averageRatingElement.nextSibling.style;
-                        var direction = _Global.getComputedStyle(this._element).direction;
-                        if (prevState) {
-                            if (direction === "rtl") {
-                                direction = "ltr";
-                            } else {
-                                direction = "rtl";
-                            }
-                        }
-                        if (direction === "rtl") {
-                            style.paddingRight = this._elementPadding;
-                            style.borderRight = this._elementBorder;
-                            style.direction = "rtl";
-                        } else {
-                            style.paddingLeft = this._elementPadding;
-                            style.borderLeft = this._elementBorder;
-                            style.direction = "ltr";
-                        }
-                        style.backgroundPosition = "left";
-                        style.backgroundSize = "100% 100%";
-                        style.width = this._resizeStringValue(this._elementWidth, 1, style.width);
-                    }
-                },
-
-                _resetAverageStar: function (prevState) {
-                    this._resetNextElement(prevState);
-                    this._hideAverageRating();
-                },
-
-                _resizeStringValue: function (string, factor, curString) {
-                    var number = parseFloat(string);
-                    if (isNaN(number)) {
-                        if (curString !== null) {
-                            return curString;
-                        } else {
-                            return string;
-                        }
-                    }
-                    var unit = string.substring(number.toString(10).length);
-                    number = number * factor;
-                    return (number + unit);
-                },
-
-                _setControlSize: function (value) {
-                    // Coerce value to a positive integer between 0 and maxRating
-                    // if negative default to DEFAULT_MAX_RATING
-                    var maxRating = (Number(value) || DEFAULT_MAX_RATING) >> 0;
-                    this._maxRating = maxRating > 0 ? maxRating : DEFAULT_MAX_RATING;
-                },
-
-                _updateTooltips: function (value) {
-                    var i, max = 0;
-                    if (value !== null) {
-                        max = ((value.length <= this._maxRating + 1) ? value.length : this._maxRating + 1);
-                        for (i = 0; i < max; i++) {
-                            this._tooltipStrings[i] = value[i];
-                        }
-                    } else {
-                        for (i = 0; i < this._maxRating; i++) {
-                            this._tooltipStrings[i] = i + 1;
-                        }
-                        this._tooltipStrings[this._maxRating] = strings.clearYourRating;
-                    }
-                },
-
-                _updateTabIndex: function () {
-                    this._element.tabIndex = (this._disabled ? "-1" : "0");
-                },
-
-                _setStarClasses: function (classNameBeforeThreshold, threshold, classNameAfterThreshold) {
-                    for (var i = 0; i < this._maxRating; i++) {
-                        if (i < threshold) {
-                            this._elements[i].className = classNameBeforeThreshold;
-                        } else {
-                            this._elements[i].className = classNameAfterThreshold;
-                        }
-                    }
-                },
-
-                // Average rating star is created from 2 divs:
-                // In the first div the glyph starts from the beginning in the direction of the control
-                // In the second div the glyph starts from the beginning in the opposite direction
-                // That way we are making the average star look like one glyph
-                _updateAverageStar: function () {
-                    var style = this._averageRatingElement.style;
-                    var nextStyle = this._averageRatingElement.nextSibling.style;
-                    if (_Global.getComputedStyle(this._element).direction === "rtl") {
-                        style.backgroundPosition = "right";
-                        style.paddingRight = this._elementPadding;
-                        style.borderRight = this._elementBorder;
-                        nextStyle.paddingRight = "0px";
-                        nextStyle.borderRight = "0px";
-                        nextStyle.direction = "ltr";
-                    } else {
-                        style.backgroundPosition = "left";
-                        nextStyle.backgroundPosition = "right";
-                        style.paddingLeft = this._elementPadding;
-                        style.borderLeft = this._elementBorder;
-                        nextStyle.paddingLeft = "0px";
-                        nextStyle.borderLeft = "0px";
-                        nextStyle.direction = "rtl";
-                    }
-                    _ElementUtilities._setFlexStyle(this._averageRatingElement, {grow: this._floatingValue, shrink: this._floatingValue});
-                    style.width = this._resizeStringValue(this._elementWidth, this._floatingValue, style.width);
-                    style.backgroundSize = (100 / this._floatingValue) + "% 100%";
-                    style.display = _Global.getComputedStyle(this._averageRatingElement.nextSibling).display;
-                    this._averageRatingHidden = false;
-                    _ElementUtilities._setFlexStyle(this._averageRatingElement.nextSibling, {grow: 1 - this._floatingValue, shrink: 1 - this._floatingValue});
-                    nextStyle.width = this._resizeStringValue(this._elementWidth, 1 - this._floatingValue, nextStyle.width);
-                    nextStyle.backgroundSize = (100 / (1 - this._floatingValue)) + "% 100%";
-                },
-
-                // show current rating
-                _showCurrentRating: function () {
-                    this._closeTooltip();
-                    // reset tentative rating
-                    this._tentativeRating = -1;
-                    // if the control is read only then we didn't change anything on hover
-                    if (!this._disabled) {
-                        this._updateControl();
-                    }
-                    this._updateAccessibilityRestState();
-                },
-
-                _showTentativeRating: function (firePreviewChange, tooltipType) {
-                    // if the control is read only don't hover stars
-                    if ((!this._disabled) && (this._tentativeRating >= 0)) {
-                        this._setStarClasses(msRatingTentativeFull, this._tentativeRating, msRatingTentativeEmpty);
-
-                        // hide the empty star
-                        this._hideAverageStar();
-                    }
-
-                    this._updateAccessibilityHoverState();
-
-                    if (firePreviewChange) {
-                        this._openTooltip(tooltipType);
-                        this._raiseEvent(PREVIEW_CHANGE, this._tentativeRating);
-                    }
-                },
-
-                _openTooltip: function (tooltipType) {
-                    if (this.disabled) {
-                        return;
-                    }
-
-                    this._ensureTooltips();
-                    if (this._tentativeRating > 0) {
-                        this._toolTips[this._tentativeRating - 1].innerHTML = this._tooltipStrings[this._tentativeRating - 1];
-                        this._toolTips[this._tentativeRating - 1].open(tooltipType);
-                    } else if (this._tentativeRating === 0) {
-                        this._clearElement = _Global.document.createElement("div");
-                        var distance = this._elements[0].offsetWidth + parseInt(this._elementPadding, 10);
-                        if (_Global.getComputedStyle(this._element).direction === "ltr") {
-                            distance *= -1;
-                        }
-                        this._clearElement.style.cssText = "visiblity:hidden; position:absolute; width:0px; height:100%; left:" + distance + "px; top:0px;";
-                        this._elements[0].appendChild(this._clearElement);
-                        this._toolTips[this._maxRating] = new Tooltip.Tooltip(this._clearElement);
-                        this._toolTips[this._maxRating].innerHTML = this._tooltipStrings[this._maxRating];
-                        this._toolTips[this._maxRating].open(tooltipType);
-                    }
-                },
-
-                _closeTooltip: function () {
-                    if (this._toolTips.length !== 0) {
-                        if (this._tentativeRating > 0) {
-                            this._toolTips[this._tentativeRating - 1].close();
-                        } else if (this._tentativeRating === 0) {
-                            if (this._clearElement !== null) {
-                                this._toolTips[this._maxRating].close();
-                                this._elements[0].removeChild(this._clearElement);
-                                this._clearElement = null;
-                            }
-                        }
-                    }
-                },
-
-                _clearTooltips: function () {
-                    if (this._toolTips && this._toolTips.length !== 0) {
-                        for (var i = 0; i < this._maxRating; i++) {
-                            this._toolTips[i].innerHTML = null;
-                        }
-                    }
-                },
-
-                _appendClass: function (classNameToBeAdded) {
-                    for (var i = 0; i <= this._maxRating; i++) {
-                        _ElementUtilities.addClass(this._elements[i], classNameToBeAdded);
-                    }
-                },
-
-                _setClasses: function (classNameBeforeThreshold, threshold, classNameAfterThreshold) {
-                    for (var i = 0; i < this._maxRating; i++) {
-                        if (i < threshold) {
-                            this._elements[i].className = classNameBeforeThreshold;
-                        } else {
-                            this._elements[i].className = classNameAfterThreshold;
-                        }
-                    }
-                },
-
-                _ensureAverageMSStarRating: function () {
-                    _ElementUtilities.data(this._averageRatingElement).msStarRating = Math.ceil(this._averageRating);
-                },
-
-                _updateControl: function () {
-                    if (!this._controlUpdateNeeded) {
-                        return;
-                    }
-
-                    // check for average rating (if user rating is specified then we are not showing average rating)
-                    if ((this._averageRating !== 0) && (this._userRating === 0)) {
-                        if ((this._averageRating >= 1) && (this._averageRating <= this._maxRating)) { // Display average rating
-                            this._setClasses(msRatingAverageFull, this._averageRating - 1, msRatingAverageEmpty);
-                            this._averageRatingElement.className = msRatingAverageFull;
-
-                            for (var i = 0; i < this._maxRating; i++) {
-                                // check if it is average star
-                                if ((i < this._averageRating) && ((i + 1) >= this._averageRating)) {
-                                    this._resetNextElement(false);
-
-                                    this._element.insertBefore(this._averageRatingElement, this._elements[i]);
-
-                                    this._floatingValue = this._averageRating - i;
-                                    var elementStyle = _Global.getComputedStyle(this._elements[i]);
-                                    this._elementWidth = elementStyle.width;
-
-                                    if (_Global.getComputedStyle(this._element).direction === "rtl") {
-                                        this._elementPadding = elementStyle.paddingRight;
-                                        this._elementBorder = elementStyle.borderRight;
-                                    } else {
-                                        this._elementPadding = elementStyle.paddingLeft;
-                                        this._elementBorder = elementStyle.borderLeft;
-                                    }
-
-                                    this._updateAverageStar();
-                                }
-                            }
-                        }
-                    }
-
-                    // check if it is user rating control
-                    if (this._userRating !== 0) {
-                        if ((this._userRating >= 1) && (this._userRating <= this._maxRating)) { // Display user rating.
-                            this._setClasses(msRatingUserFull, this._userRating, msRatingUserEmpty);
-
-                            // hide average star
-                            this._resetAverageStar(false);
-                        }
-                    }
-
-                    // update stars if the rating is not set
-                    if ((this._userRating === 0) && (this._averageRating === 0)) { // Display empty rating
-                        this._setClasses(msRatingEmpty, this._maxRating);
-
-                        // hide average star
-                        this._resetAverageStar(false);
-                    }
-
-                    if (this.disabled) { // Display disabled rating.
-                        this._appendClass(msRatingDisabled);
-                    }
-
-                    // update classes to differentiate average rating vs user rating
-                    // If the userRating is 0 and averageRating is 0 we would like to treat that rating control as user rating control (not as average rating control).
-                    if ((this._averageRating !== 0) && (this._userRating === 0)) {
-                        this._appendClass(msAverage);
-                    } else {
-                        this._appendClass(msUser);
-                    }
-
-                    this._updateAccessibilityRestState();
-                }
-            });
-        })
-    });
-
-});
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 define('WinJS/Controls/ToggleSwitch',[
     '../Core/_Global',
     '../Core/_Base',
@@ -35853,1666 +32153,6 @@ define('WinJS/Controls/Pivot',[
     });
 });
 // Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('WinJS/Controls/Hub/_Section',[
-    'exports',
-    '../../Core/_Global',
-    '../../Core/_Base',
-    '../../Core/_BaseUtils',
-    '../../Core/_ErrorFromName',
-    '../../Core/_Resources',
-    '../../ControlProcessor',
-    '../../Promise',
-    '../../Utilities/_Control',
-    '../../Utilities/_Dispose',
-    '../../Utilities/_ElementUtilities',
-    '../../Utilities/_KeyboardBehavior'
-    ], function hubSectionInit(exports, _Global, _Base, _BaseUtils, _ErrorFromName, _Resources, ControlProcessor, Promise, _Control, _Dispose, _ElementUtilities, _KeyboardBehavior) {
-    "use strict";
-
-    _Base.Namespace._moduleDefine(exports, "WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.HubSection">
-        /// Defines a section of a Hub control.
-        /// </summary>
-        /// <compatibleWith platform="Windows" minVersion="8.1"/>
-        /// </field>
-        /// <icon src="ui_winjs.ui.hubsection.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.hubsection.16x16.png" width="16" height="16" />
-        /// <htmlSnippet supportsContent="true"><![CDATA[<div data-win-control="WinJS.UI.HubSection" data-win-options="{header: 'HubSection Header'}">HubSection Content</div>]]></htmlSnippet>
-        /// <part name="hubsection" class="win-hub-section" locid="WinJS.UI.HubSection_part:hubsection">The entire HubSection control.</part>
-        /// <part name="header" class="win-hub-section-header" locid="WinJS.UI.HubSection_part:header">The header region of the HubSection.</part>
-        /// <part name="headertabstop" class="win-hub-section-header-tabstop" locid="WinJS.UI.HubSection_part:headertabstop">The tab stop region of the header region of the HubSection.</part>
-        /// <part name="headercontent" class="win-hub-section-header-content" locid="WinJS.UI.HubSection_part:headercontent">The content region of the header region of the HubSection.</part>
-        /// <part name="headerchevron" class="win-hub-section-header-chevron" locid="WinJS.UI.HubSection_part:headerchevron">The chevron region of the header region of the HubSection.</part>
-        /// <part name="content" class="win-hub-section-content" locid="WinJS.UI.HubSection_part:content">The content region of the HubSection.</part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        HubSection: _Base.Namespace._lazy(function () {
-            var strings = {
-                get duplicateConstruction() { return "Invalid argument: Controls may only be instantiated one time for each DOM element"; }
-            };
-
-            var HubSection = _Base.Class.define(function HubSection_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.HubSection.HubSection">
-                /// <summary locid="WinJS.UI.HubSection.constructor">
-                /// Creates a new HubSection.
-                /// </summary>
-                /// <param name="element" type="HTMLElement" domElement="true" isOptional="true" locid="WinJS.UI.HubSection.constructor_p:element">
-                /// The DOM element that hosts the HubSection control.
-                /// </param>
-                /// <param name="options" type="Object" isOptional="true" locid="WinJS.UI.HubSection.constructor_p:options">
-                /// An object that contains one or more property/value pairs to apply to the new control.
-                /// Each property of the options object corresponds to one of the control's properties or events.
-                /// </param>
-                /// <returns type="WinJS.UI.HubSection" locid="WinJS.UI.HubSection.constructor_returnValue">
-                /// The new HubSection.
-                /// </returns>
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </signature>
-                element = element || _Global.document.createElement("DIV");
-                options = options || {};
-
-                if (element.winControl) {
-                    throw new _ErrorFromName("WinJS.UI.HubSection.DuplicateConstruction", strings.duplicateConstruction);
-                }
-
-                // Attaching JS control to DOM element
-                element.winControl = this;
-                this._element = element;
-                _ElementUtilities.addClass(this.element, HubSection._ClassName.hubSection);
-                _ElementUtilities.addClass(this.element, "win-disposable");
-
-                // Not using innerHTML here because there could have been some children already.
-                this._headerElement = _Global.document.createElement("DIV");
-                this._headerElement.className = HubSection._ClassName.hubSectionHeader;
-                this._headerElement.innerHTML =
-                    '<button type="button" role="link" class="' + HubSection._ClassName.hubSectionInteractive + ' ' + HubSection._ClassName.hubSectionHeaderTabStop + '">' +
-                        '<div class="' +  HubSection._ClassName.hubSectionHeaderWrapper + '" tabindex="-1">' +
-                            '<h2 class="' + HubSection._ClassName.hubSectionHeaderContent + ' ' + HubSection._Constants.ellipsisTypeClassName + ' ' + HubSection._Constants.xLargeTypeClassName + '"></h2>' +
-                            '<span class="' + HubSection._ClassName.hubSectionHeaderChevron + ' ' + HubSection._Constants.ellipsisTypeClassName + ' ' + HubSection._Constants.xLargeTypeClassName + '"></span>' +
-                        '</div>' +
-                    '</button>';
-                this._headerTabStopElement = this._headerElement.firstElementChild;
-                // The purpose of headerWrapperElement is to lay out its children in a flexbox. Ideally, this flexbox would
-                // be on headerTabStopElement. However, firefox lays out flexboxes with display:flex differently.
-                // Firefox bug 1014285 (Button with display:inline-flex doesn't layout properly)
-                // https://bugzilla.mozilla.org/show_bug.cgi?id=1014285
-                this._headerWrapperElement = this._headerTabStopElement.firstElementChild;
-                this._headerContentElement = this._headerWrapperElement.firstElementChild;
-                this._headerChevronElement = this._headerWrapperElement.lastElementChild;
-                element.appendChild(this._headerElement);
-
-                this._winKeyboard = new _KeyboardBehavior._WinKeyboard(this._headerElement);
-
-                this._contentElement = _Global.document.createElement("DIV");
-                this._contentElement.className = HubSection._ClassName.hubSectionContent;
-                this._contentElement.style.visibility = "hidden";
-                element.appendChild(this._contentElement);
-
-                // Reparent any existing elements inside the new hub section content element.
-                var elementToMove = this.element.firstChild;
-                while (elementToMove !== this._headerElement) {
-                    var nextElement = elementToMove.nextSibling;
-                    this._contentElement.appendChild(elementToMove);
-                    elementToMove = nextElement;
-                }
-
-                this._processors = [ControlProcessor.processAll];
-
-                _Control.setOptions(this, options);
-            }, {
-                /// <field type="HTMLElement" domElement="true" hidden="true" locid="WinJS.UI.HubSection.element" helpKeyword="WinJS.UI.HubSection.element">
-                /// Gets the DOM element that hosts the HubSection.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                element: {
-                    get: function () {
-                        return this._element;
-                    }
-                },
-                /// <field type="Boolean" locid="WinJS.UI.HubSection.isHeaderStatic" helpKeyword="WinJS.UI.HubSection.isHeaderStatic">
-                /// Gets or sets a value that specifies whether the header is static. Set this value to true to disable clicks and other interactions.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                isHeaderStatic: {
-                    get: function () {
-                        return this._isHeaderStatic;
-                    },
-                    set: function (value) {
-                        this._isHeaderStatic = value;
-                        if (!this._isHeaderStatic) {
-                            this._headerTabStopElement.setAttribute("role", "link");
-                            _ElementUtilities.addClass(this._headerTabStopElement, HubSection._ClassName.hubSectionInteractive);
-                        } else {
-                            this._headerTabStopElement.setAttribute("role", "heading");
-                            _ElementUtilities.removeClass(this._headerTabStopElement, HubSection._ClassName.hubSectionInteractive);
-                        }
-                    }
-                },
-                /// <field type="HTMLElement" domElement="true" locid="WinJS.UI.HubSection.contentElement" helpKeyword="WinJS.UI.HubSection.contentElement">
-                /// Gets the DOM element that hosts the HubSection's content.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                contentElement: {
-                    get: function () {
-                        return this._contentElement;
-                    }
-                },
-                /// <field type="Object" locid="WinJS.UI.HubSection.header" helpKeyword="WinJS.UI.HubSection.header">
-                /// Get or set the HubSection's header. After you set this property, the Hub renders the header again.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                header: {
-                    get: function () {
-                        return this._header;
-                    },
-                    set: function (value) {
-                        // Render again even if it is equal to itself.
-                        this._header = value;
-                        this._renderHeader();
-                    }
-                },
-                _setHeaderTemplate: function HubSection_setHeaderTemplate(template) {
-                    this._template = _ElementUtilities._syncRenderer(template);
-                    this._renderHeader();
-                },
-                _renderHeader: function HubSection_renderHeader() {
-                    if (this._template) {
-                        _Dispose._disposeElement(this._headerContentElement);
-                        _ElementUtilities.empty(this._headerContentElement);
-                        this._template(this, this._headerContentElement);
-                    }
-                },
-                _process: function HubSection_process() {
-                    var that = this;
-
-                    this._processed = (this._processors || []).reduce(function (promise, processor) {
-                        return promise.then(function () {
-                            return processor(that.contentElement);
-                        });
-                    }, this._processed || Promise.as());
-                    this._processors = null;
-
-                    return this._processed;
-                },
-                dispose: function HubSection_dispose() {
-                    /// <signature helpKeyword="WinJS.UI.HubSection.dispose">
-                    /// <summary locid="WinJS.UI.HubSection.dispose">
-                    /// Disposes this control.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </signature>
-                    if (this._disposed) {
-                        return;
-                    }
-                    this._disposed = true;
-                    this._processors = null;
-
-                    _Dispose._disposeElement(this._headerContentElement);
-                    _Dispose.disposeSubTree(this.contentElement);
-                }
-            }, {
-                // Names of classes used by the HubSection.
-                _ClassName: {
-                    hubSection: "win-hub-section",
-                    hubSectionHeader: "win-hub-section-header",
-                    hubSectionHeaderTabStop: "win-hub-section-header-tabstop",
-                    hubSectionHeaderWrapper: "win-hub-section-header-wrapper",
-                    hubSectionInteractive: "win-hub-section-header-interactive",
-                    hubSectionHeaderContent: "win-hub-section-header-content",
-                    hubSectionHeaderChevron: "win-hub-section-header-chevron",
-                    hubSectionContent: "win-hub-section-content"
-                },
-                _Constants: {
-                    ellipsisTypeClassName: "win-type-ellipsis",
-                    xLargeTypeClassName: "win-type-x-large"
-                },
-                isDeclarativeControlContainer: _BaseUtils.markSupportedForProcessing(function (section, callback) {
-                    if (callback === ControlProcessor.processAll) {
-                        return;
-                    }
-
-                    section._processors = section._processors || [];
-                    section._processors.push(callback);
-
-                    // Once processed the first time synchronously queue up new processors as they come in
-                    if (section._processed) {
-                        section._process();
-                    }
-                })
-            });
-
-            return HubSection;
-        })
-    });
-
-});
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('WinJS/Controls/Hub',[
-    '../Core/_Global',
-    '../Core/_Base',
-    '../Core/_BaseUtils',
-    '../Core/_ErrorFromName',
-    '../Core/_Events',
-    '../Core/_Log',
-    '../Core/_Resources',
-    '../Core/_WriteProfilerMark',
-    '../Animations',
-    '../Animations/_TransitionAnimation',
-    '../BindingList',
-    '../ControlProcessor',
-    '../Promise',
-    '../_Signal',
-    '../Scheduler',
-    '../Utilities/_Control',
-    '../Utilities/_ElementUtilities',
-    '../Utilities/_Hoverable',
-    '../Utilities/_UI',
-    './Hub/_Section',
-    'require-style!less/desktop/controls',
-    'require-style!less/phone/controls'
-    ], function hubInit(_Global, _Base, _BaseUtils, _ErrorFromName, _Events, _Log, _Resources, _WriteProfilerMark, Animations, _TransitionAnimation, BindingList, ControlProcessor, Promise, _Signal, Scheduler, _Control, _ElementUtilities, _Hoverable, _UI, _Section) {
-    "use strict";
-
-    _Base.Namespace.define("WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.Hub">
-        /// Displays sections of content.
-        /// </summary>
-        /// <compatibleWith platform="Windows" minVersion="8.1"/>
-        /// </field>
-        /// <icon src="ui_winjs.ui.hub.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.hub.16x16.png" width="16" height="16" />
-        /// <htmlSnippet supportsContent="true"><![CDATA[<div data-win-control="WinJS.UI.Hub">
-        /// <div data-win-control="WinJS.UI.HubSection" data-win-options="{header: 'HubSection Header'}">HubSection Content</div>
-        /// </div>]]></htmlSnippet>
-        /// <event name="contentanimating" bubbles="true" locid="WinJS.UI.Hub_e:contentanimating">Raised when the Hub is about to play an entrance or a transition animation.</event>
-        /// <event name="headerinvoked" bubbles="true" locid="WinJS.UI.Hub_e:headerinvoked">Raised when a header is invoked.</event>
-        /// <event name="loadingstatechanged" bubbles="true" locid="WinJS.UI.Hub_e:loadingstatechanged">Raised when the loading state changes.</event>
-        /// <part name="hub" class="win-hub" locid="WinJS.UI.Hub_part:hub">The entire Hub control.</part>
-        /// <part name="progress" class="win-hub-progress" locid="WinJS.UI.Hub_part:progress">The progress indicator for the Hub.</part>
-        /// <part name="viewport" class="win-hub-viewport" locid="WinJS.UI.Hub_part:viewport">The viewport of the Hub.</part>
-        /// <part name="surface" class="win-hub-surface" locid="WinJS.UI.Hub_part:surface">The scrollable region of the Hub.</part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        Hub: _Base.Namespace._lazy(function () {
-            var Key = _ElementUtilities.Key;
-
-            function hubDefaultHeaderTemplate(section) {
-                var element = _Global.document.createTextNode(typeof section.header === "object" ? JSON.stringify(section.header) : ('' + section.header));
-                return element;
-            }
-
-            var createEvent = _Events._createEventProperty;
-            var eventNames = {
-                contentAnimating: "contentanimating",
-                headerInvoked: "headerinvoked",
-                loadingStateChanged: "loadingstatechanged"
-            };
-
-            // Delay time before progress dots are shown when loading hub section(s) on screen.
-            var progressDelay = 500;
-
-            var verticalNames = {
-                scrollPos: "scrollTop",
-                scrollSize: "scrollHeight",
-                offsetPos: "offsetTop",
-                offsetSize: "offsetHeight",
-                oppositeOffsetSize: "offsetWidth",
-                marginStart: "marginTop",
-                marginEnd: "marginBottom",
-                borderStart: "borderTopWidth",
-                borderEnd: "borderBottomWidth",
-                paddingStart: "paddingTop",
-                paddingEnd: "paddingBottom"
-            };
-            var rtlHorizontalNames = {
-                scrollPos: "scrollLeft",
-                scrollSize: "scrollWidth",
-                offsetPos: "offsetLeft",
-                offsetSize: "offsetWidth",
-                oppositeOffsetSize: "offsetHeight",
-                marginStart: "marginRight",
-                marginEnd: "marginLeft",
-                borderStart: "borderRightWidth",
-                borderEnd: "borderLeftWidth",
-                paddingStart: "paddingRight",
-                paddingEnd: "paddingLeft"
-            };
-            var ltrHorizontalNames = {
-                scrollPos: "scrollLeft",
-                scrollSize: "scrollWidth",
-                offsetPos: "offsetLeft",
-                offsetSize: "offsetWidth",
-                oppositeOffsetSize: "offsetHeight",
-                marginStart: "marginLeft",
-                marginEnd: "marginRight",
-                borderStart: "borderLeftWidth",
-                borderEnd: "borderRightWidth",
-                paddingStart: "paddingLeft",
-                paddingEnd: "paddingRight"
-            };
-
-            var Hub = _Base.Class.define(function Hub_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.Hub.Hub">
-                /// <summary locid="WinJS.UI.Hub.constructor">
-                /// Creates a new Hub control.
-                /// </summary>
-                /// <param name="element" type="HTMLElement" domElement="true" isOptional="true" locid="WinJS.UI.Hub.constructor_p:element">
-                /// The DOM element that hosts the Hub control.
-                /// </param>
-                /// <param name="options" type="Object" isOptional="true" locid="WinJS.UI.Hub.constructor_p:options">
-                /// An object that contains one or more property/value pairs to apply to the new control.
-                /// Each property of the options object corresponds to one of the control's properties or events.
-                /// Event names must begin with "on". For example, to provide a handler for the contentanimating event,
-                /// add a property named "oncontentanimating" to the options object and set its value to the event handler.
-                /// </param>
-                /// <returns type="WinJS.UI.Hub" locid="WinJS.UI.Hub.constructor_returnValue">
-                /// The new Hub.
-                /// </returns>
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </signature>
-                element = element || _Global.document.createElement("DIV");
-                options = options || {};
-
-                if (element.winControl) {
-                    throw new _ErrorFromName("WinJS.UI.Hub.DuplicateConstruction", strings.duplicateConstruction);
-                }
-
-                this._id = element.id || _ElementUtilities._uniqueID(element);
-                this._writeProfilerMark("constructor,StartTM");
-
-                this._windowKeyDownHandlerBound = this._windowKeyDownHandler.bind(this);
-                _Global.addEventListener('keydown', this._windowKeyDownHandlerBound);
-
-                // Attaching JS control to DOM element
-                element.winControl = this;
-                this._element = element;
-                _ElementUtilities.addClass(this.element, Hub._ClassName.hub);
-                _ElementUtilities.addClass(this.element, "win-disposable");
-
-                this._viewportElement = _Global.document.createElement("DIV");
-                this._viewportElement.className = Hub._ClassName.hubViewport;
-                this._element.appendChild(this._viewportElement);
-                this._viewportElement.setAttribute("role", "group");
-                this._viewportElement.setAttribute("aria-label", strings.hubViewportAriaLabel);
-
-                this._surfaceElement = _Global.document.createElement("DIV");
-                this._surfaceElement.className = Hub._ClassName.hubSurface;
-                this._viewportElement.appendChild(this._surfaceElement);
-
-                // Start invisible so that you do not see the content loading until the sections are ready.
-                this._visible = false;
-                this._viewportElement.style.opacity = 0;
-
-                if (!options.orientation) {
-                    this._orientation = _UI.Orientation.horizontal;
-                    _ElementUtilities.addClass(this.element, Hub._ClassName.hubHorizontal);
-                }
-
-                this._fireEntrance = true;
-                this._animateEntrance = true;
-                this._loadId = 0;
-                this.runningAnimations = new Promise.wrap();
-                this._currentIndexForSezo = 0;
-
-                // This internally assigns this.sections which causes section to be used (even from options) before
-                // scrollPosition or sectionOnScreen.
-                this._parse();
-
-                _Control.setOptions(this, options);
-
-                _ElementUtilities._addEventListener(this.element, "focusin", this._focusin.bind(this), false);
-                this.element.addEventListener("keydown", this._keyDownHandler.bind(this));
-                this.element.addEventListener("click", this._clickHandler.bind(this));
-                this._resizeHandlerBound = this._resizeHandler.bind(this);
-                this.element.addEventListener("mselementresize", this._resizeHandlerBound);
-                _ElementUtilities._resizeNotifier.subscribe(this.element, this._resizeHandlerBound);
-                this._viewportElement.addEventListener("scroll", this._scrollHandler.bind(this));
-                this._surfaceElement.addEventListener("mselementresize", this._contentResizeHandler.bind(this));
-
-                this._handleSectionChangedBind = this._handleSectionChanged.bind(this);
-                this._handleSectionInsertedBind = this._handleSectionInserted.bind(this);
-                this._handleSectionMovedBind = this._handleSectionMoved.bind(this);
-                this._handleSectionRemovedBind = this._handleSectionRemoved.bind(this);
-                this._handleSectionReloadBind = this._handleSectionReload.bind(this);
-
-                this._refresh();
-
-                this._writeProfilerMark("constructor,StopTM");
-            }, {
-                /// <field type="HTMLElement" domElement="true" hidden="true" locid="WinJS.UI.Hub.element" helpKeyword="WinJS.UI.Hub.element">
-                /// Gets the DOM element that hosts the Hub.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                element: {
-                    get: function () {
-                        return this._element;
-                    }
-                },
-                /// <field type="String" oamOptionsDatatype="WinJS.UI.Orientation" locid="WinJS.UI.Hub.orientation" helpKeyword="WinJS.UI.Hub.orientation">
-                /// Gets or sets the orientation of sections within the Hub.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                orientation: {
-                    get: function () {
-                        return this._orientation;
-                    },
-                    set: function (value) {
-                        if (value === this._orientation) {
-                            return;
-                        }
-                        this._measured = false;
-                        // clear existing scroll before we switch orientation
-                        if (this._names) { // handle setting orientation before we measure
-                            var newScrollPos = {};
-                            newScrollPos[this._names.scrollPos] = 0;
-                            _ElementUtilities.setScrollPosition(this._viewportElement, newScrollPos);
-                        }
-                        if (value === _UI.Orientation.vertical) {
-                            _ElementUtilities.removeClass(this.element, Hub._ClassName.hubHorizontal);
-                            _ElementUtilities.addClass(this.element, Hub._ClassName.hubVertical);
-                        } else {
-                            value = _UI.Orientation.horizontal;
-                            _ElementUtilities.removeClass(this.element, Hub._ClassName.hubVertical);
-                            _ElementUtilities.addClass(this.element, Hub._ClassName.hubHorizontal);
-                        }
-                        this._orientation = value;
-                        Scheduler.schedule(this._updateSnapList.bind(this), Scheduler.Priority.idle);
-                    }
-                },
-                /// <field type="WinJS.Binding.List" locid="WinJS.UI.Hub.sections" helpKeyword="WinJS.UI.Hub.sections">
-                /// Gets or sets the WinJS.Binding.List of HubSection objects that belong to this Hub.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                sections: {
-                    get: function () {
-                        if (this._pendingSections) {
-                            return this._pendingSections;
-                        }
-                        return this._sections;
-                    },
-                    set: function (value) {
-                        var resetScrollPosition = !this._pendingSections;
-                        this._pendingSections = value;
-                        this._refresh();
-                        if (resetScrollPosition) {
-                            this.scrollPosition = 0;
-                        }
-                    }
-                },
-                /// <field type="Object" locid="WinJS.UI.Hub.headerTemplate" helpKeyword="WinJS.UI.Hub.headerTemplate" potentialValueSelector="[data-win-control='WinJS.Binding.Template']">
-                /// Gets or sets the WinJS.Binding.Template or template function that creates the DOM elements
-                /// which represent the header for each HubSection. Each header can
-                /// contain multiple DOM elements, but we recommend that it have a single
-                /// root element.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                headerTemplate: {
-                    get: function () {
-                        if (this._pendingHeaderTemplate) {
-                            return this._pendingHeaderTemplate;
-                        }
-
-                        if (!this._headerTemplate) {
-                            this._headerTemplate = hubDefaultHeaderTemplate;
-                        }
-
-                        return this._headerTemplate;
-                    },
-                    set: function (value) {
-                        this._pendingHeaderTemplate = value || hubDefaultHeaderTemplate;
-                        this._refresh();
-                    }
-                },
-                /// <field type="Number" integer="true" locid="WinJS.UI.Hub.scrollPosition" helpKeyword="WinJS.UI.Hub.scrollPosition">
-                /// Gets or sets the position of the Hub's scrollbar.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                scrollPosition: {
-                    get: function () {
-                        if (+this._pendingScrollLocation === this._pendingScrollLocation) {
-                            return this._pendingScrollLocation;
-                        }
-
-                        this._measure();
-                        return this._scrollPosition;
-                    },
-                    set: function (value) {
-                        value = Math.max(0, value);
-                        if (this._pendingRefresh) {
-                            // Unable to constrain length because sections may have changed.
-                            this._pendingScrollLocation = value;
-                            this._pendingSectionOnScreen = null;
-                        } else {
-                            this._measure();
-                            var targetScrollPos = Math.max(0, Math.min(this._scrollLength - this._viewportSize, value));
-                            this._scrollPosition = targetScrollPos;
-                            var newScrollPos = {};
-                            newScrollPos[this._names.scrollPos] = targetScrollPos;
-                            _ElementUtilities.setScrollPosition(this._viewportElement, newScrollPos);
-                        }
-                    }
-                },
-
-                /// <field type="Number" integer="true" locid="WinJS.UI.Hub.sectionOnScreen" helpKeyword="WinJS.UI.Hub.sectionOnScreen">
-                /// Gets or sets the index of first section in view. This property is useful for restoring a previous view when your app launches or resumes.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                sectionOnScreen: {
-                    get: function () {
-                        if (+this._pendingSectionOnScreen === this._pendingSectionOnScreen) {
-                            return this._pendingSectionOnScreen;
-                        }
-
-                        this._measure();
-                        for (var i = 0; i < this._sectionSizes.length; i++) {
-                            var sectionSize = this._sectionSizes[i];
-                            if ((sectionSize.offset + sectionSize.size - sectionSize.borderEnd - sectionSize.paddingEnd) > (this._scrollPosition + this._startSpacer + sectionSize.borderStart + sectionSize.paddingStart)) {
-                                return i;
-                            }
-                        }
-                        return -1;
-                    },
-                    set: function (value) {
-                        value = Math.max(0, value);
-                        if (this._pendingRefresh) {
-                            this._pendingSectionOnScreen = value;
-                            this._pendingScrollLocation = null;
-                        } else {
-                            this._measure();
-                            if (value >= 0 && value < this._sectionSizes.length) {
-                                this._scrollToSection(value);
-                            }
-                        }
-                    }
-                },
-                /// <field type="Number" integer="true" isAdvanced="true" locid="WinJS.UI.Hub.indexOfFirstVisible" helpKeyword="WinJS.UI.Hub.indexOfFirstVisible">
-                /// Gets or sets the index of first section at least partially in view. Use for animations.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                indexOfFirstVisible: {
-                    get: function () {
-                        this._measure();
-                        for (var i = 0; i < this._sectionSizes.length; i++) {
-                            var sectionSize = this._sectionSizes[i];
-                            if ((sectionSize.offset + sectionSize.size - sectionSize.borderEnd - sectionSize.paddingEnd) > this._scrollPosition) {
-                                return i;
-                            }
-                        }
-                        return -1;
-                    }
-                },
-                /// <field type="Number" integer="true" isAdvanced="true" locid="WinJS.UI.Hub.indexOfLastVisible" helpKeyword="WinJS.UI.Hub.indexOfLastVisible">
-                /// Gets or sets the index of last section at least partially in view. Use for animations.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                indexOfLastVisible: {
-                    get: function () {
-                        this._measure();
-                        for (var i = this._sectionSizes.length - 1; i >= 0; i--) {
-                            var sectionSize = this._sectionSizes[i];
-                            if ((sectionSize.offset + sectionSize.paddingStart + sectionSize.borderStart) < (this._scrollPosition + this._viewportSize)) {
-                                return i;
-                            }
-                        }
-                        return -1;
-                    }
-                },
-
-                /// <field type="Function" locid="WinJS.UI.Hub.onheaderinvoked" helpKeyword="WinJS.UI.Hub.onheaderinvoked">
-                /// Raised  when the user clicks on an interactive header.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                onheaderinvoked: createEvent(eventNames.headerInvoked),
-
-                /// <field type="Function" locid="WinJS.UI.Hub.onloadingstatechanged" helpKeyword="WinJS.UI.Hub.onloadingstatechanged">
-                /// Raised when the loadingState of the Hub changes.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                onloadingstatechanged: createEvent(eventNames.loadingStateChanged),
-
-                /// <field type="Function" locid="WinJS.UI.Hub.oncontentanimating" helpKeyword="WinJS.UI.Hub.oncontentanimating">
-                /// Raised when Hub is about to play entrance, contentTransition, insert, or remove animations.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                oncontentanimating: createEvent(eventNames.contentAnimating),
-
-                _refresh: function hub_refresh() {
-                    if (this._pendingRefresh) {
-                        return;
-                    }
-
-                    this._loadId++;
-                    this._setState(Hub.LoadingState.loading);
-                    // This is to coalesce property setting operations such as sections and scrollPosition.
-                    this._pendingRefresh = true;
-
-                    Scheduler.schedule(this._refreshImpl.bind(this), Scheduler.Priority.high);
-                },
-                _refreshImpl: function hub_refreshImpl() {
-                    if (this._disposed) {
-                        return;
-                    }
-
-                    var fadeOutAnimation = Promise.wrap();
-                    if (this._pendingSections) {
-                        this._animateEntrance = true;
-                        this._fireEntrance = !this._visible;
-                        if (!this._fireEntrance) {
-                            this._visible = false;
-                            this._viewportElement.style.opacity = 0;
-
-                            if (_TransitionAnimation.isAnimationEnabled()) {
-                                var animateTransition = this._fireEvent(Hub._EventName.contentAnimating, {
-                                    type: Hub.AnimationType.contentTransition
-                                });
-
-                                if (animateTransition) {
-                                    this._viewportElement.style["-ms-overflow-style"] = "none";
-                                    fadeOutAnimation = Animations.fadeOut(this._viewportElement).then(function () {
-                                        this._viewportElement.style["-ms-overflow-style"] = "";
-                                    }.bind(this));
-                                }
-                                this._animateEntrance = animateTransition;
-                            }
-                        }
-                    }
-
-                    fadeOutAnimation.done(this._applyProperties.bind(this));
-                },
-                _applyProperties: function hub_applyProperties() {
-                    if (this._disposed) {
-                        return;
-                    }
-
-                    this._pendingRefresh = false;
-
-                    var needsToLoadSections = false;
-                    if (this._pendingSections) {
-                        needsToLoadSections = true;
-                        this._updateEvents(this._sections, this._pendingSections);
-                        this._sections = this._pendingSections;
-                        this._pendingSections = null;
-                        // Remove any declaratively specified hub sections before attachSections.
-                        while (this.element.firstElementChild !== this._viewportElement) {
-                            var toRemove = this.element.firstElementChild;
-                            toRemove.parentNode.removeChild(toRemove);
-                        }
-                        _ElementUtilities.empty(this._surfaceElement);
-                    }
-
-                    if (this._pendingHeaderTemplate) {
-                        this._headerTemplate = this._pendingHeaderTemplate;
-                        this._pendingHeaderTemplate = null;
-                    }
-
-                    this._assignHeaderTemplate();
-
-                    if (needsToLoadSections) {
-                        this._attachSections();
-                    }
-
-                    // Scroll after headers are rendered and sections are attached so the scroll thumb is correct.
-                    if (+this._pendingSectionOnScreen === this._pendingSectionOnScreen) {
-                        // If there are both pending section on screen and scroll location use section on screen.
-                        this.sectionOnScreen = this._pendingSectionOnScreen;
-                    } else if (+this._pendingScrollLocation === this._pendingScrollLocation) {
-                        this.scrollPosition = this._pendingScrollLocation;
-                    } else {
-                        // Sections reset without sectionOnScreen or scrollPosition APIs.
-                        this.scrollPosition = 0;
-                    }
-
-                    this._pendingSectionOnScreen = null;
-                    this._pendingScrollLocation = null;
-
-                    // Using current (or new) scroll location load the sections
-                    this._setState(Hub.LoadingState.loading);
-                    this._loadSections();
-                },
-                _handleSectionChanged: function hub_handleSectionChanged(ev) {
-                    // Change is triggered by binding list setAt() API.
-                    if (this._pendingSections) {
-                        return;
-                    }
-
-                    var newSection = ev.detail.newValue;
-                    var oldSection = ev.detail.oldValue;
-                    newSection._setHeaderTemplate(this.headerTemplate);
-                    if (newSection.element !== oldSection.element) {
-                        if (newSection.element.parentNode === this._surfaceElement) {
-                            throw new _ErrorFromName("WinJS.UI.Hub.DuplicateSection", strings.duplicateSection);
-                        }
-
-                        this._surfaceElement.insertBefore(newSection.element, oldSection.element);
-                        this._surfaceElement.removeChild(oldSection.element);
-                        this._measured = false;
-
-                        this._setState(Hub.LoadingState.loading);
-                        this._loadSections();
-                    }
-                },
-                _handleSectionInserted: function hub_handleSectionInserted(ev) {
-                    // Insert is triggered by binding list insert APIs such as splice(), push(), and unshift().
-                    if (this._pendingSections) {
-                        return;
-                    }
-
-                    var index = ev.detail.index;
-                    var section = ev.detail.value;
-
-                    if (section._animation) {
-                        section._animation.cancel();
-                    }
-
-                    var animation;
-                    var result = this._fireEvent(Hub._EventName.contentAnimating, {
-                        type: Hub.AnimationType.insert,
-                        index: index,
-                        section: section
-                    });
-
-                    if (result) {
-
-                        var affectedElements = [];
-
-                        for (var i = index + 1; i < this.sections.length; i++) {
-                            affectedElements.push(this.sections.getAt(i).element);
-                        }
-
-                        animation = new Animations._createUpdateListAnimation([section.element], [], affectedElements);
-                    }
-
-                    if (section.element.parentNode === this._surfaceElement) {
-                        throw new _ErrorFromName("WinJS.UI.Hub.DuplicateSection", strings.duplicateSection);
-                    }
-
-                    section._setHeaderTemplate(this.headerTemplate);
-                    if (index < this.sections.length - 1) {
-                        this._surfaceElement.insertBefore(section.element, this.sections.getAt(index + 1).element);
-                    } else {
-                        this._surfaceElement.appendChild(section.element);
-                    }
-                    this._measured = false;
-
-                    if (animation) {
-                        var insertAnimation = animation.execute();
-                        this.runningAnimations = Promise.join([this.runningAnimations, insertAnimation]);
-                    }
-
-                    this._setState(Hub.LoadingState.loading);
-                    this._loadSections();
-                },
-                _handleSectionMoved: function hub_handleSectionMoved(ev) {
-                    // Move is triggered by binding list move() API.
-                    if (this._pendingSections) {
-                        return;
-                    }
-
-                    var newIndex = ev.detail.newIndex;
-                    var section = ev.detail.value;
-
-                    if (newIndex < this.sections.length - 1) {
-                        this._surfaceElement.insertBefore(section.element, this.sections.getAt(newIndex + 1).element);
-                    } else {
-                        this._surfaceElement.appendChild(section.element);
-                    }
-                    this._measured = false;
-
-                    this._setState(Hub.LoadingState.loading);
-                    this._loadSections();
-                },
-                _handleSectionRemoved: function hub_handleSectionRemoved(ev) {
-                    // Removed is triggered by binding list removal APIs such as splice(), pop(), and shift().
-                    if (this._pendingSections) {
-                        return;
-                    }
-
-                    var section = ev.detail.value;
-                    var index = ev.detail.index;
-
-                    var animationPromise = Promise.wrap();
-                    var result = this._fireEvent(Hub._EventName.contentAnimating, {
-                        type: Hub.AnimationType.remove,
-                        index: index,
-                        section: section
-                    });
-
-                    if (result) {
-                        var affectedElements = [];
-
-                        for (var i = index; i < this.sections.length; i++) {
-                            affectedElements.push(this.sections.getAt(i).element);
-                        }
-
-                        var animation = new Animations._createUpdateListAnimation([], [section.element], affectedElements);
-
-                        this._measure();
-                        var offsetTop = section.element.offsetTop;
-                        var offsetLeft = section.element.offsetLeft;
-                        section.element.style.position = "absolute";
-                        section.element.style.top = offsetTop;
-                        section.element.style.left = offsetLeft;
-                        section.element.style.opacity = 0;
-                        this._measured = false;
-
-                        animationPromise = animation.execute().then(function () {
-                            section.element.style.position = "";
-                            section.element.style.top = "";
-                            section.element.style.left = "";
-                            section.element.style.opacity = 1;
-                        }.bind(this));
-                    }
-
-                    animationPromise.done(function () {
-                        if (!this._disposed) {
-                            this._surfaceElement.removeChild(section.element);
-                            this._measured = false;
-                        }
-                    }.bind(this));
-
-                    // Store animation promise in case it is inserted before remove animation finishes.
-                    section._animation = animationPromise;
-                    this.runningAnimations = Promise.join([this.runningAnimations, animationPromise]);
-
-                    this._setState(Hub.LoadingState.loading);
-                    this._loadSections();
-                },
-                _handleSectionReload: function hub_handleSectionReload() {
-                    // Reload is triggered by large operations on the binding list such as reverse(). This causes
-                    // _pendingSections to be true which ignores future insert/remove/modified/moved events until the new
-                    // sections list is applied.
-                    this.sections = this.sections;
-                },
-                _updateEvents: function hub_updateEvents(oldSections, newSections) {
-                    if (oldSections) {
-                        oldSections.removeEventListener("itemchanged", this._handleSectionChangedBind);
-                        oldSections.removeEventListener("iteminserted", this._handleSectionInsertedBind);
-                        oldSections.removeEventListener("itemmoved", this._handleSectionMovedBind);
-                        oldSections.removeEventListener("itemremoved", this._handleSectionRemovedBind);
-                        oldSections.removeEventListener("reload", this._handleSectionReloadBind);
-                    }
-
-                    if (newSections) {
-                        newSections.addEventListener("itemchanged", this._handleSectionChangedBind);
-                        newSections.addEventListener("iteminserted", this._handleSectionInsertedBind);
-                        newSections.addEventListener("itemmoved", this._handleSectionMovedBind);
-                        newSections.addEventListener("itemremoved", this._handleSectionRemovedBind);
-                        newSections.addEventListener("reload", this._handleSectionReloadBind);
-                    }
-                },
-                _attachSections: function hub_attachSections() {
-                    this._measured = false;
-                    for (var i = 0; i < this.sections.length; i++) {
-                        var section = this._sections.getAt(i);
-                        if (section._animation) {
-                            section._animation.cancel();
-                        }
-                        if (section.element.parentNode === this._surfaceElement) {
-                            throw new _ErrorFromName("WinJS.UI.Hub.DuplicateSection", strings.duplicateSection);
-                        }
-                        this._surfaceElement.appendChild(section.element);
-                    }
-                },
-                _assignHeaderTemplate: function hub_assignHeaderTemplate() {
-                    this._measured = false;
-                    for (var i = 0; i < this.sections.length; i++) {
-                        var section = this._sections.getAt(i);
-                        section._setHeaderTemplate(this.headerTemplate);
-                    }
-                },
-                _loadSection: function hub_loadSection(index) {
-                    var section = this._sections.getAt(index);
-                    return section._process().then(function resetVisibility() {
-                        var style = section.contentElement.style;
-                        if (style.visibility !== "") {
-                            style.visibility = "";
-                        }
-                    });
-                },
-                _loadSections: function hub_loadSections() {
-                    // Used to know if another load has interrupted this one.
-                    this._loadId++;
-                    var loadId = this._loadId;
-                    var that = this;
-                    var onScreenItemsAnimatedPromise = Promise.wrap();
-                    var sectionIndicesToLoad = [];
-                    var allSectionsLoadedPromise = Promise.wrap();
-
-                    function loadNextSectionAfterPromise(promise) {
-                        promise.then(function () {
-                            Scheduler.schedule(loadNextSection, Scheduler.Priority.idle);
-                        });
-                    }
-
-                    function loadNextSection() {
-                        if (loadId === that._loadId && !that._disposed) {
-                            if (sectionIndicesToLoad.length) {
-                                var index = sectionIndicesToLoad.shift();
-                                var loadedPromise = that._loadSection(index);
-                                loadNextSectionAfterPromise(loadedPromise);
-                            } else {
-                                allSectionsLoadedSignal.complete();
-                            }
-                        }
-                    }
-
-                    if (!this._showProgressPromise) {
-                        this._showProgressPromise = Promise.timeout(progressDelay).then(function () {
-                            if (this._disposed) {
-                                return;
-                            }
-
-                            if (!this._progressBar) {
-                                this._progressBar = _Global.document.createElement("progress");
-                                _ElementUtilities.addClass(this._progressBar, Hub._ClassName.hubProgress);
-                                this._progressBar.max = 100;
-                            }
-                            if (!this._progressBar.parentNode) {
-                                this.element.insertBefore(this._progressBar, this._viewportElement);
-                            }
-                            this._showProgressPromise = null;
-                        }.bind(this), function () {
-                            this._showProgressPromise = null;
-                        }.bind(this));
-                    }
-
-                    if (this.sections.length) {
-                        var allSectionsLoadedSignal = new _Signal();
-                        allSectionsLoadedPromise = allSectionsLoadedSignal.promise;
-                        // Synchronously load the sections on screen.
-                        var synchronousProcessPromises = [];
-                        var start = Math.max(0, this.indexOfFirstVisible);
-                        var end = Math.max(0, this.indexOfLastVisible);
-                        for (var i = start; i <= end; i++) {
-                            synchronousProcessPromises.push(this._loadSection(i));
-                        }
-
-                        // Determine the order to load the rest of the sections.
-                        start--;
-                        end++;
-                        while (start >= 0 || end < this.sections.length) {
-                            if (end < this.sections.length) {
-                                sectionIndicesToLoad.push(end);
-                                end++;
-                            }
-                            if (start >= 0) {
-                                sectionIndicesToLoad.push(start);
-                                start--;
-                            }
-                        }
-
-                        var onScreenSectionsLoadedPromise = Promise.join(synchronousProcessPromises);
-
-                        // In case there are overlapping load calls
-                        onScreenSectionsLoadedPromise.done(function () {
-                            if (loadId === this._loadId && !that._disposed) {
-                                if (this._showProgressPromise) {
-                                    this._showProgressPromise.cancel();
-                                }
-
-                                if (this._progressBar && this._progressBar.parentNode) {
-                                    this._progressBar.parentNode.removeChild(this._progressBar);
-                                }
-
-                                Scheduler.schedule(function Hub_entranceAnimation() {
-                                    if (loadId === this._loadId && !that._disposed) {
-                                        if (!this._visible) {
-                                            this._visible = true;
-                                            this._viewportElement.style.opacity = 1;
-
-                                            if (this._animateEntrance && _TransitionAnimation.isAnimationEnabled()) {
-                                                var eventDetail = {
-                                                    type: Hub.AnimationType.entrance
-                                                };
-
-                                                if (!this._fireEntrance || this._fireEvent(Hub._EventName.contentAnimating, eventDetail)) {
-                                                    this._viewportElement.style["-ms-overflow-style"] = "none";
-                                                    onScreenItemsAnimatedPromise = Animations.enterContent(this._viewportElement, [{ left: this._fireEntrance ? "100px" : "40px", top: "0px", rtlflip: true }], { mechanism: "transition" }).then(function () {
-                                                        this._viewportElement.style["-ms-overflow-style"] = "";
-                                                    }.bind(this));
-                                                }
-                                            }
-                                            if (this._element === _Global.document.activeElement) {
-                                                this._moveFocusIn(this.sectionOnScreen);
-                                            }
-                                        }
-                                    }
-                                }, Scheduler.Priority.high, this, "WinJS.UI.Hub.entranceAnimation");
-                            }
-                        }.bind(this));
-
-                        loadNextSectionAfterPromise(onScreenSectionsLoadedPromise);
-                    } else {
-                        if (this._showProgressPromise) {
-                            this._showProgressPromise.cancel();
-                        }
-
-                        if (this._progressBar && this._progressBar.parentNode) {
-                            this._progressBar.parentNode.removeChild(this._progressBar);
-                        }
-                    }
-
-                    Promise.join([this.runningAnimations, onScreenItemsAnimatedPromise, allSectionsLoadedPromise]).done(function () {
-                        if (loadId === this._loadId && !that._disposed) {
-                            this.runningAnimations = Promise.wrap();
-                            this._setState(Hub.LoadingState.complete);
-                            Scheduler.schedule(this._updateSnapList.bind(this), Scheduler.Priority.idle);
-                        }
-                    }.bind(this));
-                },
-                /// <field type="String" hidden="true" locid="WinJS.UI.Hub.loadingState" helpKeyword="WinJS.UI.Hub.loadingState">
-                /// Gets a value that indicates whether the Hub is still loading or whether
-                /// loading is complete.  This property can return one of these values:
-                /// "loading" or "complete".
-                /// </field>
-                loadingState: {
-                    get: function () {
-                        return this._loadingState;
-                    }
-                },
-                _setState: function Hub_setState(state) {
-                    if (state !== this._loadingState) {
-                        this._writeProfilerMark("loadingStateChanged:" + state + ",info");
-                        this._loadingState = state;
-                        var eventObject = _Global.document.createEvent("CustomEvent");
-                        eventObject.initCustomEvent(Hub._EventName.loadingStateChanged, true, false, { loadingState: state });
-                        this._element.dispatchEvent(eventObject);
-                    }
-                },
-                _parse: function hub_parse() {
-                    var hubSections = [];
-                    var hubSectionEl = this.element.firstElementChild;
-
-                    while (hubSectionEl !== this._viewportElement) {
-                        ControlProcessor.processAll(hubSectionEl);
-
-                        var hubSectionContent = hubSectionEl.winControl;
-                        if (hubSectionContent) {
-                            hubSections.push(hubSectionContent);
-                        } else {
-                            throw new _ErrorFromName("WinJS.UI.Hub.InvalidContent", strings.invalidContent);
-                        }
-
-                        var nextSectionEl = hubSectionEl.nextElementSibling;
-                        hubSectionEl = nextSectionEl;
-                    }
-
-                    this.sections = new BindingList.List(hubSections);
-                },
-                _fireEvent: function hub_fireEvent(type, detail) {
-                    // Returns true if ev.preventDefault() was not called
-                    var event = _Global.document.createEvent("CustomEvent");
-                    event.initCustomEvent(type, true, true, detail);
-                    return this.element.dispatchEvent(event);
-                },
-
-                _findHeaderTabStop: function hub_findHeaderTabStop(element) {
-                    if (element.parentNode) {
-                        if (_ElementUtilities._matchesSelector(element, ".win-hub-section-header-tabstop, .win-hub-section-header-tabstop *")) {
-                            while (!_ElementUtilities.hasClass(element, "win-hub-section-header-tabstop")) {
-                                element = element.parentElement;
-                            }
-                            return element;
-                        }
-                    }
-                    return null;
-                },
-                _isHeaderInteractive: function hub_isHeaderInteractive(element) {
-                    // Helper method to skip keyboarding and clicks with a header's sub interactive content
-                    if (element.parentNode) {
-                        return _ElementUtilities._matchesSelector(element, ".win-interactive, .win-interactive *");
-                    }
-                    return false;
-                },
-                _clickHandler: function hub_clickHandler(ev) {
-                    var headerTabStopElement = this._findHeaderTabStop(ev.target);
-                    if (headerTabStopElement && !this._isHeaderInteractive(ev.target)) {
-                        var section = headerTabStopElement.parentElement.parentElement.winControl;
-                        if (!section.isHeaderStatic) {
-                            var sectionIndex = this.sections.indexOf(section);
-                            this._fireEvent(Hub._EventName.headerInvoked, {
-                                index: sectionIndex,
-                                section: section
-                            });
-                        }
-                    }
-                },
-                _resizeHandler: function hub_resizeHandler() {
-                    // Viewport needs to be measured
-                    this._measured = false;
-                    Scheduler.schedule(this._updateSnapList.bind(this), Scheduler.Priority.idle);
-                },
-                _contentResizeHandler: function hub_contentResizeHandler() {
-                    // Sections and scroll length need to be measured
-                    this._measured = false;
-                    Scheduler.schedule(this._updateSnapList.bind(this), Scheduler.Priority.idle);
-                },
-                _scrollHandler: function hub_scrollHandler() {
-                    // Scroll location needs to be retrieved
-                    this._measured = false;
-
-                    if (this._pendingSections) {
-                        return;
-                    }
-
-                    // Scroll events caused by users overwrite pending API modifications to scrollposition.
-                    this._pendingScrollLocation = null;
-                    this._pendingSectionOnScreen = null;
-
-                    if (!this._pendingScrollHandler) {
-                        this._pendingScrollHandler = _BaseUtils._requestAnimationFrame(function () {
-                            this._pendingScrollHandler = null;
-
-                            if (this._pendingSections) {
-                                return;
-                            }
-
-                            if (this.loadingState !== Hub.LoadingState.complete) {
-                                this._loadSections();
-                            }
-                        }.bind(this));
-                    }
-                },
-                _measure: function hub_measure() {
-                    // Any time a size changes (section growing, window resizing, etc) cachedSizes should be set to false
-                    // and any time the variables need to be read again we should measure the variables. To avoid a lot of
-                    // seperate layouts we measure the variables in a single batch.
-                    if (!this._measured || this._scrollLength === 0) {
-                        this._writeProfilerMark("measure,StartTM");
-                        this._measured = true;
-
-                        this._rtl = _Global.getComputedStyle(this._element, null).direction === "rtl";
-
-                        if (this.orientation === _UI.Orientation.vertical) {
-                            this._names = verticalNames;
-                        } else {
-                            if (this._rtl) {
-                                this._names = rtlHorizontalNames;
-                            } else {
-                                this._names = ltrHorizontalNames;
-                            }
-                        }
-
-                        this._viewportSize = this._viewportElement[this._names.offsetSize];
-                        this._viewportOppositeSize = this._viewportElement[this._names.oppositeOffsetSize];
-                        this._scrollPosition = _ElementUtilities.getScrollPosition(this._viewportElement)[this._names.scrollPos];
-                        this._scrollLength = this._viewportElement[this._names.scrollSize];
-
-                        var surfaceElementComputedStyle = _Global.getComputedStyle(this._surfaceElement);
-                        this._startSpacer = parseFloat(surfaceElementComputedStyle[this._names.marginStart]) + parseFloat(surfaceElementComputedStyle[this._names.borderStart]) + parseFloat(surfaceElementComputedStyle[this._names.paddingStart]);
-                        this._endSpacer = parseFloat(surfaceElementComputedStyle[this._names.marginEnd]) + parseFloat(surfaceElementComputedStyle[this._names.borderEnd]) + parseFloat(surfaceElementComputedStyle[this._names.paddingEnd]);
-
-                        this._sectionSizes = [];
-                        for (var i = 0; i < this.sections.length; i++) {
-                            var section = this.sections.getAt(i);
-                            var computedSectionStyle = _Global.getComputedStyle(section.element);
-                            this._sectionSizes[i] = {
-                                offset: section.element[this._names.offsetPos],
-                                // Reminder: offsetWidth doesn't include margins and also rounds.
-                                size: section.element[this._names.offsetSize],
-                                marginStart: parseFloat(computedSectionStyle[this._names.marginStart]),
-                                marginEnd: parseFloat(computedSectionStyle[this._names.marginEnd]),
-                                borderStart: parseFloat(computedSectionStyle[this._names.borderStart]),
-                                borderEnd: parseFloat(computedSectionStyle[this._names.borderEnd]),
-                                paddingStart: parseFloat(computedSectionStyle[this._names.paddingStart]),
-                                paddingEnd: parseFloat(computedSectionStyle[this._names.paddingEnd])
-                            };
-
-                            if (this._rtl && this.orientation === _UI.Orientation.horizontal) {
-                                this._sectionSizes[i].offset = this._viewportSize - (this._sectionSizes[i].offset + this._sectionSizes[i].size);
-                            }
-                        }
-
-                        this._writeProfilerMark("measure,StopTM");
-                    }
-                },
-                _updateSnapList: function hub_updateSnapList() {
-                    this._writeProfilerMark("updateSnapList,StartTM");
-                    this._measure();
-
-                    var snapList = "snapList(";
-                    for (var i = 0; i < this._sectionSizes.length; i++) {
-                        if (i > 0) {
-                            snapList += ",";
-                        }
-                        var sectionSize = this._sectionSizes[i];
-                        snapList += (sectionSize.offset - sectionSize.marginStart - this._startSpacer) + "px";
-                    }
-                    snapList += ")";
-
-                    var snapListY = "";
-                    var snapListX = "";
-                    if (this.orientation === _UI.Orientation.vertical) {
-                        snapListY = snapList;
-                    } else {
-                        snapListX = snapList;
-                    }
-
-                    if (this._lastSnapPointY !== snapListY) {
-                        this._lastSnapPointY = snapListY;
-                        this._viewportElement.style['-ms-scroll-snap-points-y'] = snapListY;
-                    }
-
-                    if (this._lastSnapPointX !== snapListX) {
-                        this._lastSnapPointX = snapListX;
-                        this._viewportElement.style['-ms-scroll-snap-points-x'] = snapListX;
-                    }
-
-                    this._writeProfilerMark("updateSnapList,StopTM");
-                },
-                _scrollToSection: function Hub_scrollToSection(index, withAnimation) {
-                    this._measure();
-                    var sectionSize = this._sectionSizes[index];
-                    var scrollPositionToShowStartMargin = Math.min(this._scrollLength - this._viewportSize, sectionSize.offset - sectionSize.marginStart - this._startSpacer);
-
-                    this._scrollTo(scrollPositionToShowStartMargin, withAnimation);
-                },
-                _ensureVisible: function hub_ensureVisible(index, withAnimation) {
-                    this._measure();
-                    var targetScrollPos = this._ensureVisibleMath(index, this._scrollPosition);
-                    this._scrollTo(targetScrollPos, withAnimation);
-                },
-                _ensureVisibleMath: function hub_ensureVisibleMath(index, targetScrollPos) {
-                    this._measure();
-                    var sectionSize = this._sectionSizes[index];
-
-                    var scrollPositionToShowStartMargin = Math.min(this._scrollLength - this._viewportSize, sectionSize.offset - sectionSize.marginStart - this._startSpacer);
-                    var scrollPositionToShowEndMargin = Math.max(0, sectionSize.offset + sectionSize.size + sectionSize.marginEnd + this._endSpacer - this._viewportSize + 1);
-                    if (targetScrollPos > scrollPositionToShowStartMargin) {
-                        targetScrollPos = scrollPositionToShowStartMargin;
-                    } else if (targetScrollPos < scrollPositionToShowEndMargin) {
-                        targetScrollPos = Math.min(scrollPositionToShowStartMargin, scrollPositionToShowEndMargin);
-                    }
-
-                    return targetScrollPos;
-                },
-                _scrollTo: function hub_scrollTo(scrollPos, withAnimation) {
-                    this._scrollPosition = scrollPos;
-                    if (withAnimation) {
-                        if (this.orientation === _UI.Orientation.vertical) {
-                            _ElementUtilities._zoomTo(this._viewportElement, { contentX: 0, contentY: this._scrollPosition, viewportX: 0, viewportY: 0 });
-                        } else {
-                            _ElementUtilities._zoomTo(this._viewportElement, { contentX: this._scrollPosition, contentY: 0, viewportX: 0, viewportY: 0 });
-                        }
-                    } else {
-                        var newScrollPos = {};
-                        newScrollPos[this._names.scrollPos] = this._scrollPosition;
-                        _ElementUtilities.setScrollPosition(this._viewportElement, newScrollPos);
-                    }
-                },
-                _windowKeyDownHandler: function hub_windowKeyDownHandler(ev) {
-                    // Include tab and shift tab. Note: Alt Key + Tab and Windows Key + Tab do not fire keydown with ev.key === "Tab".
-                    if (ev.keyCode === Key.tab) {
-                        this._tabSeenLast = true;
-
-                        var that = this;
-                        _BaseUtils._yieldForEvents(function () {
-                            that._tabSeenLast = false;
-                        });
-                    }
-                },
-                _focusin: function hub_focusin(ev) {
-                    // On focus we call ensureVisible to handle the tab or shift/tab to header. However if the
-                    // focus was caused by a pointer down event we skip the focus.
-                    if (this._tabSeenLast) {
-                        var headerTabStopElement = this._findHeaderTabStop(ev.target);
-                        if (headerTabStopElement && !this._isHeaderInteractive(ev.target)) {
-                            var sectionIndex = this.sections.indexOf(headerTabStopElement.parentElement.parentElement.winControl);
-                            if (sectionIndex > -1) {
-                                this._ensureVisible(sectionIndex, true);
-                            }
-                        }
-                    }
-
-                    // Always remember the focused section for SemanticZoom.
-                    var sectionElement = ev.target;
-                    while (sectionElement && !_ElementUtilities.hasClass(sectionElement, _Section.HubSection._ClassName.hubSection)) {
-                        sectionElement = sectionElement.parentElement;
-                    }
-                    if (sectionElement) {
-                        var sectionIndex = this.sections.indexOf(sectionElement.winControl);
-                        if (sectionIndex > -1) {
-                            this._currentIndexForSezo = sectionIndex;
-                        }
-                    }
-
-                    if (ev.target === this.element) {
-                        var indexToFocus;
-                        if (+this._sectionToFocus === this._sectionToFocus && this._sectionToFocus >= 0 && this._sectionToFocus < this.sections.length) {
-                            indexToFocus = this._sectionToFocus;
-                            this._sectionToFocus = null;
-                        } else {
-                            indexToFocus = this.sectionOnScreen;
-                        }
-
-                        this._moveFocusIn(indexToFocus);
-                    }
-                },
-                _moveFocusIn: function hub_moveFocusIn(indexToFocus) {
-                    if (indexToFocus >= 0) {
-                        for (var i = indexToFocus; i < this.sections.length; i++) {
-                            var section = this.sections.getAt(i);
-
-                            var focusAttempt = _ElementUtilities._trySetActive(section._headerTabStopElement, this._viewportElement);
-
-                            if (focusAttempt) {
-                                return;
-                            }
-
-                            if (_ElementUtilities._setActiveFirstFocusableElement(section.contentElement, this._viewportElement)) {
-                                return;
-                            }
-                        }
-
-                        for (var i = indexToFocus - 1; i >= 0; i--) {
-                            var section = this.sections.getAt(i);
-
-                            if (_ElementUtilities._setActiveFirstFocusableElement(section.contentElement, this._viewportElement)) {
-                                return;
-                            }
-
-                            var focusAttempt = _ElementUtilities._trySetActive(section._headerTabStopElement, this._viewportElement);
-
-                            if (focusAttempt) {
-                                return;
-                            }
-                        }
-                    }
-                },
-                _keyDownHandler: function hub_keyDownHandler(ev) {
-                    var leftKey = this._rtl ? Key.rightArrow : Key.leftArrow;
-                    var rightKey = this._rtl ? Key.leftArrow : Key.rightArrow;
-
-                        if (ev.keyCode === Key.upArrow || ev.keyCode === Key.downArrow || ev.keyCode === Key.leftArrow || ev.keyCode === Key.rightArrow || ev.keyCode === Key.pageUp || ev.keyCode === Key.pageDown) {
-                        var headerTabStopElement = this._findHeaderTabStop(ev.target);
-                        if (headerTabStopElement && !this._isHeaderInteractive(ev.target)) {
-                            var currentSection = this.sections.indexOf(headerTabStopElement.parentElement.parentElement.winControl);
-                            var targetSectionIndex;
-                            var useEnsureVisible = false;
-                            // Page up/down go to the next/previous header and line it up with the app header. Up/Right/Down/Left
-                            // move focus to the next/previous header and move it on screen (app header distance from either edge).
-                            if (ev.keyCode === Key.pageDown ||
-                                (this.orientation === _UI.Orientation.horizontal && ev.keyCode === rightKey) ||
-                                (this.orientation === _UI.Orientation.vertical && ev.keyCode === Key.downArrow)) {
-                                // Do not include hidden headers.
-                                for (var i = currentSection + 1; i < this.sections.length; i++) {
-                                    if (this._tryFocus(i)) {
-                                        targetSectionIndex = i;
-                                        break;
-                                    }
-                                }
-                            } else if (ev.keyCode === Key.pageUp ||
-                                (this.orientation === _UI.Orientation.horizontal && ev.keyCode === leftKey) ||
-                                (this.orientation === _UI.Orientation.vertical && ev.keyCode === Key.upArrow)) {
-                                // Do not include hidden headers.
-                                for (var i = currentSection - 1; i >= 0; i--) {
-                                    if (this._tryFocus(i)) {
-                                        targetSectionIndex = i;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (ev.keyCode === Key.upArrow || ev.keyCode === Key.downArrow || ev.keyCode === Key.leftArrow || ev.keyCode === Key.rightArrow) {
-                                useEnsureVisible = true;
-                            }
-
-                            if (+targetSectionIndex === targetSectionIndex) {
-                                if (useEnsureVisible) {
-                                    this._ensureVisible(targetSectionIndex, true);
-                                } else {
-                                    this._scrollToSection(targetSectionIndex, true);
-                                }
-                            }
-
-                            ev.preventDefault();
-                        }
-                    } else if (ev.keyCode === Key.home || ev.keyCode === Key.end) {
-                        // Home/End scroll to start/end and leave focus where it is.
-                        this._measure();
-                        var maxScrollPos = Math.max(0, this._scrollLength - this._viewportSize);
-                        this._scrollTo(ev.keyCode === Key.home ? 0 : maxScrollPos, true);
-                        ev.preventDefault();
-                    }
-                },
-                _tryFocus: function hub_tryFocus(index) {
-                    var targetSection = this.sections.getAt(index);
-
-                    _ElementUtilities._setActive(targetSection._headerTabStopElement, this._viewportElement);
-
-                    return _Global.document.activeElement === targetSection._headerTabStopElement;
-                },
-                /// <field type="Object" locid="WinJS.UI.Hub.zoomableView" helpKeyword="WinJS.UI.Hub.zoomableView" isAdvanced="true">
-                /// Gets a ZoomableView. This API supports the SemanticZoom infrastructure
-                /// and is not intended to be used directly from your code.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                zoomableView: {
-                    get: function zoomableView_get() {
-                        if (!this._zoomableView) {
-                            this._zoomableView = new ZoomableView(this);
-                        }
-
-                        return this._zoomableView;
-                    }
-                },
-                _getPanAxis: function hub_getPanAxis() {
-                    return this.orientation === _UI.Orientation.horizontal ? "horizontal" : "vertical";
-                },
-                _configureForZoom: function hub_configureForZoom() {
-                    // Nothing to configure.
-                },
-                _setCurrentItem: function hub_setCurrentItem(x, y) {
-                    var offset;
-                    if (this.orientation === _UI.Orientation.horizontal) {
-                        offset = x;
-                    } else {
-                        offset = y;
-                    }
-
-                    this._measure();
-                    offset = offset + this._scrollPosition;
-                    this._currentIndexForSezo = this._sectionSizes.length - 1;
-                    for (var i = 1; i < this._sectionSizes.length; i++) {
-                        var sectionSize = this._sectionSizes[i];
-                        if (sectionSize.offset - sectionSize.marginStart > offset) {
-                            this._currentIndexForSezo = i - 1;
-                            break;
-                        }
-                    }
-                },
-                _getCurrentItem: function hub_getCurrentItem() {
-                    var itemPosition;
-                    if (this._sectionSizes.length > 0) {
-                        this._measure();
-                        var index = Math.max(0, Math.min(this._currentIndexForSezo, this._sectionSizes.length));
-                        var sectionSize = this._sectionSizes[index];
-                        if (this.orientation === _UI.Orientation.horizontal) {
-                            itemPosition = {
-                                left: Math.max(0, sectionSize.offset - sectionSize.marginStart - this._scrollPosition),
-                                top: 0,
-                                width: sectionSize.size,
-                                height: this._viewportOppositeSize
-                            };
-                        } else {
-                            itemPosition = {
-                                left: 0,
-                                top: Math.max(0, sectionSize.offset - sectionSize.marginStart - this._scrollPosition),
-                                width: this._viewportOppositeSize,
-                                height: sectionSize.size,
-                            };
-                        }
-
-                        var section = this.sections.getAt(index);
-                        // BUGBUG: 53301 ListView and Hub should document what they expect to be returned from the
-                        // getCurrentItem so that positionItem apis line up. ListView zoomed out expects an object with
-                        // groupIndexHint, groupKey, or groupDescription. Hub expects an object with index.
-                        return Promise.wrap({ item: { data: section, index: index, groupIndexHint: index }, position: itemPosition });
-                    }
-                },
-                _beginZoom: function hub_beginZoom() {
-                    // Hide scroll thumb.
-                    this._viewportElement.style["-ms-overflow-style"] = "none";
-                },
-                _positionItem: function hub_positionItem(item, position) {
-                    if (item.index >= 0 && item.index < this._sectionSizes.length) {
-                        this._measure();
-                        var sectionSize = this._sectionSizes[item.index];
-
-                        var offsetFromViewport;
-                        if (this.orientation === _UI.Orientation.horizontal) {
-                            offsetFromViewport = position.left;
-                        } else {
-                            offsetFromViewport = position.top;
-                        }
-
-                        this._sectionToFocus = item.index;
-
-                        var targetScrollPosition = sectionSize.offset - offsetFromViewport;
-                        // clamp section:
-                        var targetScrollPosition = this._ensureVisibleMath(item.index, targetScrollPosition);
-
-                        this._scrollPosition = targetScrollPosition;
-                        var newScrollPos = {};
-                        newScrollPos[this._names.scrollPos] = this._scrollPosition;
-                        _ElementUtilities.setScrollPosition(this._viewportElement, newScrollPos);
-                    }
-                },
-                _endZoom: function hub_endZoom() {
-                    // Show scroll thumb.
-                    this._viewportElement.style["-ms-overflow-style"] = "";
-                },
-                _writeProfilerMark: function hub_writeProfilerMark(text) {
-                    var message = "WinJS.UI.Hub:" + this._id + ":" + text;
-                    _WriteProfilerMark(message);
-                    _Log.log && _Log.log(message, null, "hubprofiler");
-                },
-                dispose: function hub_dispose() {
-                    /// <signature helpKeyword="WinJS.UI.Hub.dispose">
-                    /// <summary locid="WinJS.UI.Hub.dispose">
-                    /// Disposes this control.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </signature>
-                    if (this._disposed) {
-                        return;
-                    }
-                    this._disposed = true;
-
-                    _Global.removeEventListener('keydown', this._windowKeyDownHandlerBound);
-                    _ElementUtilities._resizeNotifier.unsubscribe(this.element, this._resizeHandlerBound);
-
-                    this._updateEvents(this._sections);
-
-                    for (var i = 0; i < this.sections.length; i++) {
-                        this.sections.getAt(i).dispose();
-                    }
-                }
-            }, {
-                /// <field locid="WinJS.UI.Hub.AnimationType" helpKeyword="WinJS.UI.Hub.AnimationType">
-                /// Specifies whether the Hub animation is an entrance animation or a transition animation.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                AnimationType: {
-                    /// <field locid="WinJS.UI.Hub.AnimationType.entrance" helpKeyword="WinJS.UI.Hub.AnimationType.entrance">
-                    /// The animation plays when the Hub is first displayed.
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </field>
-                    entrance: "entrance",
-                    /// <field locid="WinJS.UI.Hub.AnimationType.contentTransition" helpKeyword="WinJS.UI.Hub.AnimationType.contentTransition">
-                    /// The animation plays when the Hub is changing its content.
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </field>
-                    contentTransition: "contentTransition",
-                    /// <field locid="WinJS.UI.Hub.AnimationType.insert" helpKeyword="WinJS.UI.Hub.AnimationType.insert">
-                    /// The animation plays when a section is inserted into the Hub.
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </field>
-                    insert: "insert",
-                    /// <field locid="WinJS.UI.Hub.AnimationType.remove" helpKeyword="WinJS.UI.Hub.AnimationType.remove">
-                    /// The animation plays when a section is removed into the Hub.
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </field>
-                    remove: "remove",
-                },
-                /// <field locid="WinJS.UI.Hub.LoadingState" helpKeyword="WinJS.UI.Hub.LoadingState">
-                /// Gets the current loading state of the Hub.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                LoadingState: {
-                    /// <field locid="WinJS.UI.Hub.LoadingState.loading" helpKeyword="WinJS.UI.Hub.LoadingState.loading">
-                    /// The Hub is loading sections.
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </field>
-                    loading: "loading",
-                    /// <field locid="WinJS.UI.Hub.LoadingState.complete" helpKeyword="WinJS.UI.Hub.LoadingState.complete">
-                    /// All sections are loaded and animations are complete.
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </field>
-                    complete: "complete"
-                },
-                // Names of classes used by the Hub.
-                _ClassName: {
-                    hub: "win-hub",
-                    hubSurface: "win-hub-surface",
-                    hubProgress: "win-hub-progress",
-                    hubViewport: "win-hub-viewport",
-                    hubVertical: "win-hub-vertical",
-                    hubHorizontal: "win-hub-horizontal",
-                },
-                // Names of events fired by the Hub.
-                _EventName: {
-                    contentAnimating: eventNames.contentAnimating,
-                    headerInvoked: eventNames.headerInvoked,
-                    loadingStateChanged: eventNames.loadingStateChanged
-                },
-            });
-
-            _Base.Class.mix(Hub, _Control.DOMEventMixin);
-
-            var ZoomableView = _Base.Class.define(function ZoomableView_ctor(hub) {
-                this._hub = hub;
-            }, {
-                getPanAxis: function () {
-                    return this._hub._getPanAxis();
-                },
-                configureForZoom: function (isZoomedOut, isCurrentView, triggerZoom, prefetchedPages) {
-                    this._hub._configureForZoom(isZoomedOut, isCurrentView, triggerZoom, prefetchedPages);
-                },
-                setCurrentItem: function (x, y) {
-                    this._hub._setCurrentItem(x, y);
-                },
-                getCurrentItem: function () {
-                    return this._hub._getCurrentItem();
-                },
-                beginZoom: function () {
-                    this._hub._beginZoom();
-                },
-                positionItem: function (item, position) {
-                    return this._hub._positionItem(item, position);
-                },
-                endZoom: function (isCurrentView) {
-                    this._hub._endZoom(isCurrentView);
-                }
-            });
-
-            var strings = {
-                get duplicateConstruction() { return "Invalid argument: Controls may only be instantiated one time for each DOM element"; },
-                get duplicateSection() { return "Hub duplicate sections: Each HubSection must be unique"; },
-                get invalidContent() { return "Invalid content: Hub content must be made up of HubSections."; },
-                get hubViewportAriaLabel() { return _Resources._getWinJSString("ui/hubViewportAriaLabel").value; }
-            };
-
-            return Hub;
-        })
-    });
-
-});
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 define('WinJS/Controls/AppBar/_Constants',[
      'exports',
      '../../Core/_Base',
@@ -39252,158 +33892,234 @@ define('WinJS/Controls/Flyout/_Overlay',[
 
 
 // Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-/// <dictionary>appbar,Flyout,Flyouts,Statics</dictionary>
-define('WinJS/Controls/Flyout',[
+define('WinJS/Controls/Tooltip',[
     'exports',
     '../Core/_Global',
+    '../Core/_WinRT',
     '../Core/_Base',
     '../Core/_BaseUtils',
-    '../Core/_ErrorFromName',
-    '../Core/_Resources',
-    '../Core/_WriteProfilerMark',
+    '../Core/_Events',
     '../Animations',
+    '../Animations/_TransitionAnimation',
+    '../Utilities/_Control',
     '../Utilities/_Dispose',
     '../Utilities/_ElementUtilities',
     '../Utilities/_Hoverable',
-    './AppBar/_Constants',
-    './Flyout/_Overlay',
     'require-style!less/desktop/controls',
     'require-style!less/phone/controls'
-    ], function flyoutInit(exports, _Global, _Base, _BaseUtils, _ErrorFromName, _Resources, _WriteProfilerMark, Animations, _Dispose, _ElementUtilities, _Hoverable, _Constants, _Overlay) {
+    ], function tooltipInit(exports, _Global, _WinRT, _Base, _BaseUtils, _Events, Animations, _TransitionAnimation, _Control, _Dispose, _ElementUtilities, _Hoverable) {
     "use strict";
 
+    // Tooltip control implementation
     _Base.Namespace._moduleDefine(exports, "WinJS.UI", {
         /// <field>
-        /// <summary locid="WinJS.UI.Flyout">
-        /// Displays lightweight UI that is either informational, or requires user interaction.
-        /// Unlike a dialog, a Flyout can be light dismissed by clicking or tapping off of it.
+        /// <summary locid="WinJS.UI.Tooltip">
+        /// Displays a tooltip that can contain images and formatting.
         /// </summary>
         /// <compatibleWith platform="Windows" minVersion="8.0"/>
         /// </field>
-        /// <name locid="WinJS.UI.Flyout_name">Flyout</name>
-        /// <icon src="ui_winjs.ui.flyout.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.flyout.16x16.png" width="16" height="16" />
-        /// <htmlSnippet supportsContent="true"><![CDATA[<div data-win-control="WinJS.UI.Flyout"></div>]]></htmlSnippet>
-        /// <event name="beforeshow" locid="WinJS.UI.Flyout_e:beforeshow">Raised just before showing a flyout.</event>
-        /// <event name="aftershow" locid="WinJS.UI.Flyout_e:aftershow">Raised immediately after a flyout is fully shown.</event>
-        /// <event name="beforehide" locid="WinJS.UI.Flyout_e:beforehide">Raised just before hiding a flyout.</event>
-        /// <event name="afterhide" locid="WinJS.UI.Flyout_e:afterhide">Raised immediately after a flyout is fully hidden.</event>
-        /// <part name="flyout" class="win-flyout" locid="WinJS.UI.Flyout_part:flyout">The Flyout control itself.</part>
+        /// <icon src="ui_winjs.ui.tooltip.12x12.png" width="12" height="12" />
+        /// <icon src="ui_winjs.ui.tooltip.16x16.png" width="16" height="16" />
+        /// <htmlSnippet supportsContent="true"><![CDATA[<div style="display:inline-block;" data-win-control="WinJS.UI.Tooltip" data-win-options="{innerHTML:'Tooltip content goes here'}"></div>]]></htmlSnippet>
+        /// <event name="beforeopen" bubbles="false" locid="WinJS.UI.Tooltip_e:beforeopen">Raised when the tooltip is about to appear.</event>
+        /// <event name="opened" bubbles="false" locid="WinJS.UI.Tooltip_e:opened">Raised when the tooltip is showing.</event>
+        /// <event name="beforeclose" bubbles="false" locid="WinJS.UI.Tooltip_e:beforeclose">Raised when the tooltip is about to become hidden.</event>
+        /// <event name="closed" bubbles="false" locid="WinJS.UI.Tooltip_e:close">Raised when the tooltip is hidden.</event>
+        /// <part name="tooltip" class="win-tooltip" locid="WinJS.UI.Tooltip_e:tooltip">The entire Tooltip control.</part>
         /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
         /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
         /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        Flyout: _Base.Namespace._lazy(function () {
+        Tooltip: _Base.Namespace._lazy(function () {
+            var lastCloseTime = 0;
             var Key = _ElementUtilities.Key;
 
-            function getDimension(element, property) {
-                return parseFloat(element, _Global.getComputedStyle(element, null)[property]);
+            // Constants definition
+            var DEFAULT_PLACEMENT = "top";
+            var DELAY_INITIAL_TOUCH_SHORT = _TransitionAnimation._animationTimeAdjustment(400);
+            var DELAY_INITIAL_TOUCH_LONG = _TransitionAnimation._animationTimeAdjustment(1200);
+            var DEFAULT_MOUSE_HOVER_TIME = _TransitionAnimation._animationTimeAdjustment(400); // 0.4 second
+            var DEFAULT_MESSAGE_DURATION = _TransitionAnimation._animationTimeAdjustment(5000); // 5 secs
+            var DELAY_RESHOW_NONINFOTIP_TOUCH = _TransitionAnimation._animationTimeAdjustment(0);
+            var DELAY_RESHOW_NONINFOTIP_NONTOUCH = _TransitionAnimation._animationTimeAdjustment(600);
+            var DELAY_RESHOW_INFOTIP_TOUCH = _TransitionAnimation._animationTimeAdjustment(400);
+            var DELAY_RESHOW_INFOTIP_NONTOUCH = _TransitionAnimation._animationTimeAdjustment(600);
+            var RESHOW_THRESHOLD = _TransitionAnimation._animationTimeAdjustment(200);
+            var HIDE_DELAY_MAX = _TransitionAnimation._animationTimeAdjustment(300000); // 5 mins
+            var OFFSET_KEYBOARD = 12;
+            var OFFSET_MOUSE = 20;
+            var OFFSET_TOUCH = 45;
+            var OFFSET_PROGRAMMATIC_TOUCH = 20;
+            var OFFSET_PROGRAMMATIC_NONTOUCH = 12;
+            var SAFETY_NET_GAP = 1; // We set a 1-pixel gap between the right or bottom edge of the tooltip and the viewport to avoid possible re-layout
+            var PT_MOUSE = _ElementUtilities._MSPointerEvent.MSPOINTER_TYPE_MOUSE || "mouse"; // pointer type to indicate a mouse event
+            var PT_TOUCH = _ElementUtilities._MSPointerEvent.MSPOINTER_TYPE_TOUCH || "touch"; // pointer type to indicate a touch event
+
+            var EVENTS_INVOKE = { "keyup": "", "pointerover": "", "pointerdown": "" },
+                EVENTS_UPDATE = { "pointermove": "" },
+                EVENTS_DISMISS = { "pointerdown": "", "keydown": "", "focusout": "", "pointerout": "", "pointercancel": "", "pointerup": "" },
+                EVENTS_BY_CHILD = { "pointerover": "", "pointerout": "" };
+
+            function isInvokeEvent(eventType, pointerType) {
+                if (eventType === "pointerdown") {
+                    return pointerType === PT_TOUCH;
+                } else {
+                    return eventType in EVENTS_INVOKE;
+                }
             }
 
-            var strings = {
-                get ariaLabel() { return _Resources._getWinJSString("ui/flyoutAriaLabel").value; },
-                get noAnchor() { return "Invalid argument: Showing flyout requires a DOM element as its parameter."; },
-                get badPlacement() { return "Invalid argument: Flyout placement should be 'top' (default), 'bottom', 'left', 'right', or 'auto'."; },
-                get badAlignment() { return "Invalid argument: Flyout alignment should be 'center' (default), 'left', or 'right'."; }
-            };
+            function isDismissEvent(eventType, pointerType) {
+                if (eventType === "pointerdown") {
+                    return pointerType !== PT_TOUCH;
+                } else {
+                    return eventType in EVENTS_DISMISS;
+                }
+            }
 
-            var Flyout = _Base.Class.derive(_Overlay._Overlay, function Flyout_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.Flyout.Flyout">
-                /// <summary locid="WinJS.UI.Flyout.constructor">
-                /// Creates a new Flyout control.
+            // CSS class names
+            var msTooltip = "win-tooltip",
+            msTooltipPhantom = "win-tooltip-phantom";
+
+            // Global attributes
+            var mouseHoverTime = DEFAULT_MOUSE_HOVER_TIME,
+                nonInfoTooltipNonTouchShowDelay = 2 * mouseHoverTime,
+                infoTooltipNonTouchShowDelay = 2.5 * mouseHoverTime,
+                messageDuration = DEFAULT_MESSAGE_DURATION,
+                isLeftHanded = false;
+
+            var hasInitWinRTSettings = false;
+
+            var createEvent = _Events._createEventProperty;
+
+            return _Base.Class.define(function Tooltip_ctor(anchorElement, options) {
+                /// <signature helpKeyword="WinJS.UI.Tooltip.Tooltip">
+                /// <summary locid="WinJS.UI.Tooltip.constructor">
+                /// Creates a new Tooltip.
                 /// </summary>
-                /// <param name="element" type="HTMLElement" domElement="true" locid="WinJS.UI.Flyout.constructor_p:element">
-                /// The DOM element that hosts the control.
+                /// <param name="element" domElement="true" locid="WinJS.UI.Tooltip.constructor_p:element">
+                /// The DOM element that hosts the Tooltip.
                 /// </param>
-                /// <param name="options" type="Object" domElement="false" locid="WinJS.UI.Flyout.constructor_p:options">
-                /// The set of properties and values to apply to the new Flyout.
+                /// <param name="options" type="Object" locid="WinJS.UI.Tooltip.constructor_p:options">
+                /// An object that contains one or more property/value pairs to apply to the new control.
+                /// Each property of the options object corresponds to one of the control's properties or events.
+                /// Event names must begin with "on". For example, to provide a handler for the opened event,
+                /// add a property named "onopened" to the options object and set its value to the event handler.
+                /// This parameter is optional.
                 /// </param>
-                /// <returns type="WinJS.UI.Flyout" locid="WinJS.UI.Flyout.constructor_returnValue">The new Flyout control.</returns>
+                /// <returns type="WinJS.UI.Tooltip" locid="WinJS.UI.Tooltip.constructor_returnValue">
+                /// The new Tooltip.
+                /// </returns>
                 /// <compatibleWith platform="Windows" minVersion="8.0"/>
                 /// </signature>
+                anchorElement = anchorElement || _Global.document.createElement("div");
 
-                // Simplify checking later
-                options = options || {};
+                var tooltip = _ElementUtilities.data(anchorElement).tooltip;
+                if (tooltip) {
+                    return tooltip;
+                }
 
-                // Make sure there's an input element
-                this._element = element || _Global.document.createElement("div");
-                this._id = this._element.id || _ElementUtilities._uniqueID(this._element);
-                this._writeProfilerMark("constructor,StartTM");
+                // Set system attributes if it is in WWA, otherwise, use the default values
+                if (!hasInitWinRTSettings && _WinRT.Windows.UI.ViewManagement.UISettings) { // in WWA
+                    var uiSettings = new _WinRT.Windows.UI.ViewManagement.UISettings();
+                    mouseHoverTime = _TransitionAnimation._animationTimeAdjustment(uiSettings.mouseHoverTime);
+                    nonInfoTooltipNonTouchShowDelay = 2 * mouseHoverTime;
+                    infoTooltipNonTouchShowDelay = 2.5 * mouseHoverTime;
+                    messageDuration = _TransitionAnimation._animationTimeAdjustment(uiSettings.messageDuration * 1000);  // uiSettings.messageDuration is in seconds.
+                    var handedness = uiSettings.handPreference;
+                    isLeftHanded = (handedness === _WinRT.Windows.UI.ViewManagement.HandPreference.leftHanded);
+                }
+                hasInitWinRTSettings = true;
 
-                this._baseFlyoutConstructor(this._element, options);
+                // Need to initialize properties
+                this._disposed = false;
+                this._placement = DEFAULT_PLACEMENT;
+                this._infotip = false;
+                this._innerHTML = null;
+                this._contentElement = null;
+                this._extraClass = null;
+                this._lastContentType = "html";
+                this._anchorElement = anchorElement;
+                this._domElement = null;
+                this._phantomDiv = null;
+                this._triggerByOpen = false;
+                this._eventListenerRemoveStack = [];
 
-                var _elms = this._element.getElementsByTagName("*");
-                var firstDiv = this._addFirstDiv();
-                firstDiv.tabIndex = _ElementUtilities._getLowestTabIndexInList(_elms);
-                var finalDiv = this._addFinalDiv();
-                finalDiv.tabIndex = _ElementUtilities._getHighestTabIndexInList(_elms);
+                // To handle keyboard navigation
+                this._lastKeyOrBlurEvent = null;
+                this._currentKeyOrBlurEvent = null;
 
-                // Handle "esc" & "tab" key presses
-                this._element.addEventListener("keydown", this._handleKeyDown, true);
+                // Remember ourselves
+                anchorElement.winControl = this;
+                _ElementUtilities.addClass(anchorElement, "win-disposable");
 
-                this._writeProfilerMark("constructor,StopTM");
-                return this;
+                // If anchor element's title is defined, set as the default tooltip content
+                if (anchorElement.title) {
+                    this._innerHTML = this._anchorElement.title;
+                    this._anchorElement.removeAttribute("title");
+                }
+
+                _Control.setOptions(this, options);
+                this._events();
+                _ElementUtilities.data(anchorElement).tooltip = this;
             }, {
-                _lastMaxHeight: null,
-
-                _baseFlyoutConstructor: function Flyout_baseFlyoutContstructor(element, options) {
-                    // Flyout constructor
-
-                    // We have some options with defaults
-                    this._placement = "auto";
-                    this._alignment = "center";
-
-                    // Call the base overlay constructor helper
-                    this._baseOverlayConstructor(element, options);
-
-                    // Make a click eating div
-                    _Overlay._Overlay._createClickEatingDivFlyout();
-
-                    // Start flyouts hidden
-                    this._element.style.visibilty = "hidden";
-                    this._element.style.display = "none";
-
-                    // Attach our css class
-                    _ElementUtilities.addClass(this._element, _Constants.flyoutClass);
-                    _ElementUtilities.addClass(this._element, _Constants.flyoutLightClass);
-
-                    // Make sure we have an ARIA role
-                    var role = this._element.getAttribute("role");
-                    if (role === null || role === "" || role === undefined) {
-                        if (_ElementUtilities.hasClass(this._element, _Constants.menuClass)) {
-                            this._element.setAttribute("role", "menu");
-                        } else {
-                            this._element.setAttribute("role", "dialog");
-                        }
-                    }
-                    var label = this._element.getAttribute("aria-label");
-                    if (label === null || label === "" || label === undefined) {
-                        this._element.setAttribute("aria-label", strings.ariaLabel);
-                    }
-
-                    // Base animation is popIn, but our flyout has different arguments
-                    this._currentAnimateIn = this._flyoutAnimateIn;
-                    this._currentAnimateOut = this._flyoutAnimateOut;
-
-                    // Make sure _Overlay event handlers are hooked up
-                    this._addOverlayEventHandlers(true);
-                },
-
-                /// <field type="String" locid="WinJS.UI.Flyout.anchor" helpKeyword="WinJS.UI.Flyout.anchor">
-                /// Gets or sets the Flyout control's anchor. The anchor element is the HTML element which the Flyout originates from and is positioned relative to.
-                /// (This setting can be overridden when you call the show method.)
+                /// <field type="String" locid="WinJS.UI.Tooltip.innerHTML" helpKeyword="WinJS.UI.Tooltip.innerHTML">
+                /// Gets or sets the HTML content of the Tooltip.
                 /// <compatibleWith platform="Windows" minVersion="8.0"/>
                 /// </field>
-                anchor: {
+                innerHTML: {
                     get: function () {
-                        return this._anchor;
+                        return this._innerHTML;
                     },
                     set: function (value) {
-                        this._anchor = value;
+                        this._innerHTML = value;
+                        if (this._domElement) {
+                            // If we set the innerHTML to null or "" while tooltip is up, we should close it
+                            if (!this._innerHTML || this._innerHTML === "") {
+                                this._onDismiss();
+                                return;
+                            }
+                            this._domElement.innerHTML = value;
+                            this._position();
+                        }
+                        this._lastContentType = "html";
                     }
                 },
 
-                /// <field type="String" defaultValue="auto" oamOptionsDatatype="WinJS.UI.Flyout.placement" locid="WinJS.UI.Flyout.placement" helpKeyword="WinJS.UI.Flyout.placement">
-                /// Gets or sets the default placement of this Flyout. (This setting can be overridden when you call the show method.)
+                /// <field type="HTMLElement" hidden="true" locid="WinJS.UI.Tooltip.element" helpKeyword="WinJS.UI.Tooltip.element">
+                /// Gets or sets the DOM element that hosts the Tooltip.
+                /// <compatibleWith platform="Windows" minVersion="8.0"/>
+                /// </field>
+                element: {
+                    get: function () {
+                        return this._anchorElement;
+                    }
+                },
+
+                /// <field type="HTMLElement" locid="WinJS.UI.Tooltip.contentElement" helpKeyword="WinJS.UI.Tooltip.contentElement" potentialValueSelector="div[style='display: none;']>div[id], div[style='display: none;']>div[class]">
+                /// Gets or sets the DOM element that is the content for the ToolTip.
+                /// <compatibleWith platform="Windows" minVersion="8.0"/>
+                /// </field>
+                contentElement: {
+                    get: function () {
+                        return this._contentElement;
+                    },
+                    set: function (value) {
+                        this._contentElement = value;
+                        if (this._domElement) {
+                            // If we set the contentElement to null while tooltip is up, we should close it
+                            if (!this._contentElement) {
+                                this._onDismiss();
+                                return;
+                            }
+                            this._domElement.innerHTML = "";
+                            this._domElement.appendChild(this._contentElement);
+                            this._position();
+                        }
+                        this._lastContentType = "element";
+                    }
+                },
+
+                /// <field type="String" oamOptionsDatatype="WinJS.UI.Tooltip.placement" locid="WinJS.UI.Tooltip.placement" helpKeyword="WinJS.UI.Tooltip.placement">
+                /// Gets or sets the position for the Tooltip relative to its target element: top, bottom, left or right.
                 /// <compatibleWith platform="Windows" minVersion="8.0"/>
                 /// </field>
                 placement: {
@@ -39411,725 +34127,720 @@ define('WinJS/Controls/Flyout',[
                         return this._placement;
                     },
                     set: function (value) {
-                        if (value !== "top" && value !== "bottom" && value !== "left" && value !== "right" && value !== "auto") {
-                            // Not a legal placement value
-                            throw new _ErrorFromName("WinJS.UI.Flyout.BadPlacement", strings.badPlacement);
+                        if (value !== "top" && value !== "bottom" && value !== "left" && value !== "right") {
+                            value = DEFAULT_PLACEMENT;
                         }
                         this._placement = value;
+                        if (this._domElement) {
+                            this._position();
+                        }
                     }
                 },
 
-                /// <field type="String" defaultValue="center" oamOptionsDatatype="WinJS.UI.Flyout.alignment" locid="WinJS.UI.Flyout.alignment" helpKeyword="WinJS.UI.Flyout.alignment">
-                /// Gets or sets the default alignment for this Flyout. (This setting can be overridden when you call the show method.)
+                /// <field type="Boolean" locid="WinJS.UI.Tooltip.infotip" helpKeyword="WinJS.UI.Tooltip.infotip">
+                /// Gets or sets a value that specifies whether the Tooltip is an infotip, a tooltip that contains
+                /// a lot of info and should be displayed for longer than a typical Tooltip.
+                /// The default value is false.
                 /// <compatibleWith platform="Windows" minVersion="8.0"/>
                 /// </field>
-                alignment: {
+                infotip: {
                     get: function () {
-                        return this._alignment;
+                        return this._infotip;
                     },
                     set: function (value) {
-                        if (value !== "right" && value !== "left" && value !== "center") {
-                            // Not a legal alignment value
-                            throw new _ErrorFromName("WinJS.UI.Flyout.BadAlignment", strings.badAlignment);
-                        }
-                        this._alignment = value;
+                        this._infotip = !!value; //convert the value to boolean
                     }
                 },
 
-                _dispose: function Flyout_dispose() {
+                /// <field type="String" locid="WinJS.UI.Tooltip.extraClass" helpKeyword="WinJS.UI.Tooltip.extraClass" isAdvanced="true">
+                /// Gets or sets additional CSS classes to apply to the Tooltip control's host element.
+                /// <compatibleWith platform="Windows" minVersion="8.0"/>
+                /// </field>
+                extraClass: {
+                    get: function () {
+                        return this._extraClass;
+                    },
+                    set: function (value) {
+                        this._extraClass = value;
+                    }
+                },
+
+                /// <field type="Function" locid="WinJS.UI.Tooltip.onbeforeopen" helpKeyword="WinJS.UI.Tooltip.onbeforeopen">
+                /// Raised just before the Tooltip appears.
+                /// <compatibleWith platform="Windows" minVersion="8.0"/>
+                /// </field>
+                onbeforeopen: createEvent("beforeopen"),
+
+                /// <field type="Function" locid="WinJS.UI.Tooltip.onopened" helpKeyword="WinJS.UI.Tooltip.onopened">
+                /// Raised when the Tooltip is shown.
+                /// <compatibleWith platform="Windows" minVersion="8.0"/>
+                /// </field>
+                onopened: createEvent("opened"),
+
+                /// <field type="Function" locid="WinJS.UI.Tooltip.onbeforeclose" helpKeyword="WinJS.UI.Tooltip.onbeforeclose">
+                /// Raised just before the Tooltip is hidden.
+                /// <compatibleWith platform="Windows" minVersion="8.0"/>
+                /// </field>
+                onbeforeclose: createEvent("beforeclose"),
+
+                /// <field type="Function" locid="WinJS.UI.Tooltip.onclosed" helpKeyword="WinJS.UI.Tooltip.onclosed">
+                /// Raised when the Tooltip is no longer displayed.
+                /// <compatibleWith platform="Windows" minVersion="8.0"/>
+                /// </field>
+                onclosed: createEvent("closed"),
+
+                dispose: function () {
+                    /// <signature helpKeyword="WinJS.UI.Tooltip.dispose">
+                    /// <summary locid="WinJS.UI.Tooltip.dispose">
+                    /// Disposes this Tooltip.
+                    /// </summary>
+                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
+                    /// </signature>
+                    if (this._disposed) {
+                        return;
+                    }
+
+                    this._disposed = true;
                     _Dispose.disposeSubTree(this.element);
-                    this._hide();
-                    this.anchor = null;
+                    for (var i = 0, len = this._eventListenerRemoveStack.length; i < len; i++) {
+                        this._eventListenerRemoveStack[i]();
+                    }
+                    this._onDismiss();
+                    var data = _ElementUtilities.data(this._anchorElement);
+                    if (data) {
+                        delete data.tooltip;
+                    }
                 },
 
-                show: function (anchor, placement, alignment) {
-                    /// <signature helpKeyword="WinJS.UI.Flyout.show">
-                    /// <summary locid="WinJS.UI.Flyout.show">
-                    /// Shows the Flyout, if hidden, regardless of other states.
+                addEventListener: function (eventName, eventCallBack, capture) {
+                    /// <signature helpKeyword="WinJS.UI.Tooltip.addEventListener">
+                    /// <summary locid="WinJS.UI.Tooltip.addEventListener">
+                    /// Registers an event handler for the specified event.
                     /// </summary>
-                    /// <param name="anchor" type="HTMLElement" domElement="true" locid="WinJS.UI.Flyout.show_p:anchor">
-                    /// The DOM element, or ID of a DOM element to anchor the Flyout, overriding the anchor property for this time only.
-                    /// </param>
-                    /// <param name="placement" type="Object" domElement="false" locid="WinJS.UI.Flyout.show_p:placement">
-                    /// The placement of the Flyout to the anchor: 'auto' (default), 'top', 'bottom', 'left', or 'right'.  This parameter overrides the placement property for this show only.
-                    /// </param>
-                    /// <param name="alignment" type="Object" domElement="false" locid="WinJS.UI.Flyout.show:alignment">
-                    /// For 'top' or 'bottom' placement, the alignment of the Flyout to the anchor's edge: 'center' (default), 'left', or 'right'.
-                    /// This parameter overrides the alignment property for this show only.
-                    /// </param>
+                    /// <param name="eventName" type="String" locid="WinJS.UI.Tooltip.addEventListener_p:eventName">The name of the event.</param>
+                    /// <param name="eventCallback" type="Function" locid="WinJS.UI.Tooltip.addEventListener_p:eventCallback">The event handler function to associate with this event.</param>
+                    /// <param name="capture" type="Boolean" locid="WinJS.UI.Tooltip.addEventListener_p:capture">Set to true to register the event handler for the capturing phase; set to false to register for the bubbling phase.</param>
                     /// <compatibleWith platform="Windows" minVersion="8.0"/>
                     /// </signature>
-                    this._writeProfilerMark("show,StartTM"); // The corresponding "stop" profiler mark is handled in _Overlay._baseEndShow().
-                    // Just call private version to make appbar flags happy
-                    this._show(anchor, placement, alignment);
+
+                    if (this._anchorElement) {
+                        this._anchorElement.addEventListener(eventName, eventCallBack, capture);
+
+                        var that = this;
+                        this._eventListenerRemoveStack.push(function () {
+                            that._anchorElement.removeEventListener(eventName, eventCallBack, capture);
+                        });
+                    }
                 },
 
-                _show: function Flyout_show(anchor, placement, alignment) {
-                    this._baseFlyoutShow(anchor, placement, alignment);
+                removeEventListener: function (eventName, eventCallBack, capture) {
+                    /// <signature helpKeyword="WinJS.UI.Tooltip.removeEventListener">
+                    /// <summary locid="WinJS.UI.Tooltip.removeEventListener">
+                    /// Unregisters an event handler for the specified event.
+                    /// </summary>
+                    /// <param name="eventName" type="String" locid="WinJS.UI.Tooltip.removeEventListener:eventName">The name of the event.</param>
+                    /// <param name="eventCallback" type="Function" locid="WinJS.UI.Tooltip.removeEventListener:eventCallback">The event handler function to remove.</param>
+                    /// <param name="capture" type="Boolean" locid="WinJS.UI.Tooltip.removeEventListener:capture">Set to true to unregister the event handler for the capturing phase; otherwise, set to false to unregister the event handler for the bubbling phase.</param>
+                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
+                    /// </signature>
+
+                    if (this._anchorElement) {
+                        this._anchorElement.removeEventListener(eventName, eventCallBack, capture);
+                    }
                 },
 
-                hide: function () {
-                    /// <signature helpKeyword="WinJS.UI.Flyout.hide">
-                    /// <summary locid="WinJS.UI.Flyout.hide">
-                    /// Hides the Flyout, if visible, regardless of other states.
+                open: function (type) {
+                    /// <signature helpKeyword="WinJS.UI.Tooltip.open">
+                    /// <summary locid="WinJS.UI.Tooltip.open">
+                    /// Shows the Tooltip.
+                    /// </summary>
+                    /// <param name="type" type="String" locid="WinJS.UI.Tooltip.open_p:type">The type of tooltip to show: "touch", "mouseover", "mousedown", or "keyboard". The default value is "mousedown".</param>
+                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
+                    /// </signature>
+
+                    // Open takes precedence over other triggering events
+                    // Once tooltip is opened using open(), it can only be closed by time out(mouseover or keyboard) or explicitly by close().
+                    this._triggerByOpen = true;
+
+                    if (type !== "touch" && type !== "mouseover" && type !== "mousedown" && type !== "keyboard") {
+                        type = "default";
+                    }
+
+                    switch (type) {
+                        case "touch":
+                            this._onInvoke("touch", "never");
+                            break;
+                        case "mouseover":
+                            this._onInvoke("mouse", "auto");
+                            break;
+                        case "keyboard":
+                            this._onInvoke("keyboard", "auto");
+                            break;
+                        case "mousedown":
+                        case "default":
+                            this._onInvoke("nodelay", "never");
+                            break;
+                    }
+
+                },
+
+                close: function () {
+                    /// <signature helpKeyword="WinJS.UI.Tooltip.close">
+                    /// <summary locid="WinJS.UI.Tooltip.close">
+                    /// Hids the Tooltip.
                     /// </summary>
                     /// <compatibleWith platform="Windows" minVersion="8.0"/>
                     /// </signature>
-                    // Just wrap the private one, turning off keyboard invoked flag
-                    this._writeProfilerMark("hide,StartTM"); // The corresponding "stop" profiler mark is handled in _Overlay._baseEndHide().
-                    this._keyboardInvoked = false;
-                    this._hide();
+
+                    this._onDismiss();
                 },
 
-                _hide: function Flyout_hide() {
-                    if (this._baseHide()) {
-                        // Return focus if this or the flyout CED has focus
-                        var active = _Global.document.activeElement;
-                        if (this._previousFocus
-                           && active
-                           && (this._element.contains(active)
-                               || _ElementUtilities.hasClass(active, _Overlay._Overlay._clickEatingFlyoutClass))
-                           && this._previousFocus.focus !== undefined) {
+                _cleanUpDOM: function () {
+                    if (this._domElement) {
+                        _Dispose.disposeSubTree(this._domElement);
+                        _Global.document.body.removeChild(this._domElement);
+                        this._domElement = null;
 
-                            // _isAppBarOrChild may return a CED or sentinal
-                            var appBar = _Overlay._Overlay._isAppBarOrChild(this._previousFocus);
-                            if (!appBar || (appBar.winControl && !appBar.winControl.hidden && !appBar.winAnimating)) {
-                                // Don't move focus back to a appBar that is hidden
-                                // We cannot rely on element.style.visibility because it will be visible while animating
-                                var role = this._previousFocus.getAttribute("role");
-                                var fHideRole = _Overlay._Overlay._keyboardInfo._visible && !this._keyboardWasUp;
-                                if (fHideRole) {
-                                    // Convince IHM to dismiss because it only came up after the flyout was up.
-                                    // Change aria role and back to get IHM to dismiss.
-                                    this._previousFocus.setAttribute("role", "");
-                                }
-
-                                if (this._keyboardInvoked) {
-                                    this._previousFocus.focus();
-                                } else {
-                                    _Overlay._Overlay._trySetActive(this._previousFocus);
-                                }
-                                active = _Global.document.activeElement;
-
-                                if (fHideRole) {
-                                    // Restore the role so that css is applied correctly
-                                    var previousFocus = this._previousFocus;
-                                    if (previousFocus) {
-                                        _BaseUtils._yieldForDomModification(function () {
-                                            previousFocus.setAttribute("role", role);
-                                        });
-                                    }
-                                }
-                            }
-
-                            // If the anchor gained focus we want to hide the focus in the non-keyboarding scenario
-                            if (!this._keyboardInvoked && (this._previousFocus === active) && appBar && active) {
-                                _Overlay._Overlay._addHideFocusClass(active);
-                            }
-                        }
-
-                        this._previousFocus = null;
-
-                        // Need click-eating div to be hidden if there are no other visible flyouts
-                        if (!this._isThereVisibleFlyout()) {
-                            _Overlay._Overlay._hideClickEatingDivFlyout();
-                        }
+                        _Global.document.body.removeChild(this._phantomDiv);
+                        this._phantomDiv = null;
                     }
                 },
 
-                _baseFlyoutShow: function Flyout_baseFlyoutShow(anchor, placement, alignment) {
-                    // Don't do anything if disabled
-                    if (this.disabled) {
-                        return;
-                    }
-                    // Pick up defaults
-                    if (!anchor) {
-                        anchor = this._anchor;
-                    }
-                    if (!placement) {
-                        placement = this._placement;
-                    }
-                    if (!alignment) {
-                        alignment = this._alignment;
-                    }
+                _createTooltipDOM: function () {
+                    this._cleanUpDOM();
 
-                    // Dereference the anchor if necessary
-                    if (typeof anchor === "string") {
-                        anchor = _Global.document.getElementById(anchor);
-                    } else if (anchor && anchor.element) {
-                        anchor = anchor.element;
-                    }
+                    this._domElement = _Global.document.createElement("div");
 
-                    // We expect an anchor
-                    if (!anchor) {
-                        // If we have _nextLeft, etc., then we were continuing an old animation, so that's OK
-                        if (!this._retryLast) {
-                            throw new _ErrorFromName("WinJS.UI.Flyout.NoAnchor", strings.noAnchor);
-                        }
-                        // Last call was incomplete, so use the previous _current values.
-                        this._retryLast = null;
-                    } else {
-                        // Remember the anchor so that if we lose focus we can go back
-                        this._currentAnchor = anchor;
-                        // Remember current values
-                        this._currentPlacement = placement;
-                        this._currentAlignment = alignment;
+                    var id = _ElementUtilities._uniqueID(this._domElement);
+                    this._domElement.setAttribute("id", id);
+
+                    // Set the direction of tooltip according to anchor element's
+                    var computedStyle = _Global.document.defaultView.getComputedStyle(this._anchorElement, null);
+                    var elemStyle = this._domElement.style;
+                    elemStyle.direction = computedStyle.direction;
+                    elemStyle.writingMode = computedStyle["writing-mode"]; // must use CSS name, not JS name
+
+                    // Make the tooltip non-focusable
+                    this._domElement.setAttribute("tabindex", -1);
+
+                    // Set the aria tags for accessibility
+                    this._domElement.setAttribute("role", "tooltip");
+                    this._anchorElement.setAttribute("aria-describedby", id);
+
+                    // Set the tooltip content
+                    if (this._lastContentType === "element") { // Last update through contentElement option
+                        this._domElement.appendChild(this._contentElement);
+                    } else { // Last update through innerHTML option
+                        this._domElement.innerHTML = this._innerHTML;
                     }
 
-                    // Need click-eating div to be visible, no matter what
-                    if (!this._sticky) {
-                        _Overlay._Overlay._showClickEatingDivFlyout();
+                    _Global.document.body.appendChild(this._domElement);
+                    _ElementUtilities.addClass(this._domElement, msTooltip);
+
+                    // In the event of user-assigned classes, add those too
+                    if (this._extraClass) {
+                        _ElementUtilities.addClass(this._domElement, this._extraClass);
                     }
 
-                    // If we're animating (eg baseShow is going to fail), then don't mess up our current state.
-                    // Queue us up to wait for current animation to finish first.
-                    if (this._element.winAnimating) {
-                        this._doNext = "show";
-                        this._retryLast = true;
-                        return;
-                    }
+                    // Create a phantom div on top of the tooltip div to block all interactions
+                    this._phantomDiv = _Global.document.createElement("div");
+                    this._phantomDiv.setAttribute("tabindex", -1);
+                    _Global.document.body.appendChild(this._phantomDiv);
+                    _ElementUtilities.addClass(this._phantomDiv, msTooltipPhantom);
+                    var zIndex = _Global.document.defaultView.getComputedStyle(this._domElement, null).zIndex + 1;
+                    this._phantomDiv.style.zIndex = zIndex;
+                },
 
-                    // We call our base _baseShow to handle the actual animation
-                    if (this._baseShow()) {
-                        // (_baseShow shouldn't ever fail because we tested winAnimating above).
-                        if (!_ElementUtilities.hasClass(this.element, "win-menu")) {
-                            // Verify that the firstDiv is in the correct location.
-                            // Move it to the correct location or add it if not.
-                            var _elms = this._element.getElementsByTagName("*");
-                            var firstDiv = this.element.querySelectorAll(".win-first");
-                            if (this.element.children.length && !_ElementUtilities.hasClass(this.element.children[0], _Constants.firstDivClass)) {
-                                if (firstDiv && firstDiv.length > 0) {
-                                    firstDiv.item(0).parentNode.removeChild(firstDiv.item(0));
-                                }
-
-                                firstDiv = this._addFirstDiv();
-                            }
-                            firstDiv.tabIndex = _ElementUtilities._getLowestTabIndexInList(_elms);
-
-                            // Verify that the finalDiv is in the correct location.
-                            // Move it to the correct location or add it if not.
-                            var finalDiv = this.element.querySelectorAll(".win-final");
-                            if (!_ElementUtilities.hasClass(this.element.children[this.element.children.length - 1], _Constants.finalDivClass)) {
-                                if (finalDiv && finalDiv.length > 0) {
-                                    finalDiv.item(0).parentNode.removeChild(finalDiv.item(0));
-                                }
-
-                                finalDiv = this._addFinalDiv();
-                            }
-                            finalDiv.tabIndex = _ElementUtilities._getHighestTabIndexInList(_elms);
-                        }
-
-                        // Hide all other flyouts
-                        this._hideAllOtherFlyouts(this);
-
-                        // Store what had focus before showing the Flyout.
-                        // This must happen after we hide all other flyouts so that we store the correct element.
-                        this._previousFocus = _Global.document.activeElement;
+                _raiseEvent: function (type, eventProperties) {
+                    if (this._anchorElement) {
+                        var customEvent = _Global.document.createEvent("CustomEvent");
+                        customEvent.initCustomEvent(type, false, false, eventProperties);
+                        this._anchorElement.dispatchEvent(customEvent);
                     }
                 },
 
-                _endShow: function Flyout_endShow() {
-                    // Remember if the IHM was up since we may need to hide it when the flyout hides.
-                    // This check needs to happen after the IHM has a chance to hide itself after we force hide
-                    // all other visible Flyouts.
-                    this._keyboardWasUp = _Overlay._Overlay._keyboardInfo._visible;
-
-                    if (!_ElementUtilities.hasClass(this.element, _Constants.menuClass)) {
-                        // Put focus on the first child in the Flyout
-                        this._focusOnFirstFocusableElementOrThis();
-
-                        // Prevent what is gaining focus from showing that it has focus
-                        _Overlay._Overlay._addHideFocusClass(_Global.document.activeElement);
-                    } else {
-                        // Make sure the menu has focus, but don't show a focus rect
-                        _Overlay._Overlay._trySetActive(this._element);
-                    }
-                },
-
-                // Find our new flyout position.
-                _findPosition: function Flyout_findPosition() {
-                    this._nextHeight = null;
-                    this._keyboardMovedUs = false;
-                    this._hasScrolls = false;
-                    this._keyboardSquishedUs = 0;
-
-                    // Make sure menu toggles behave
-                    if (this._checkToggle) {
-                        this._checkToggle();
-                    }
-
-                    // Update margins for this alignment and remove old scrolling
-                    this._updateAdjustments(this._currentAlignment);
-
-                    // Set up the new position, and prep the offset for showPopup
-                    this._getTopLeft();
-                    // Panning top offset is calculated top
-                    this._scrollTop = this._nextTop - _Overlay._Overlay._keyboardInfo._visibleDocTop;
-
-                    // Adjust position
-                    if (this._nextTop < 0) {
-                        // Need to attach to bottom
-                        this._element.style.bottom = "0px";
-                        this._element.style.top = "auto";
-                    } else {
-                        // Normal, attach to top
-                        this._element.style.top = this._nextTop + "px";
-                        this._element.style.bottom = "auto";
-                    }
-                    if (this._nextLeft < 0) {
-                        // Overran right, attach to right
-                        this._element.style.right = "0px";
-                        this._element.style.left = "auto";
-                    } else {
-                        // Normal, attach to left
-                        this._element.style.left = this._nextLeft + "px";
-                        this._element.style.right = "auto";
-                    }
-
-                    // Adjust height/scrollbar
-                    if (this._nextHeight !== null) {
-                        _ElementUtilities.addClass(this._element, _Constants.scrollsClass);
-                        this._lastMaxHeight = this._element.style.maxHeight;
-                        this._element.style.maxHeight = this._nextHeight + "px";
-                        this._nextBottom = this._nextTop + this._nextHeight;
-                        this._hasScrolls = true;
-                    }
-
-                    // May need to adjust if the IHM is showing.
-                    if (_Overlay._Overlay._keyboardInfo._visible) {
-                        // Use keyboard logic
-                        this._checkKeyboardFit();
-
-                        if (this._keyboardMovedUs) {
-                            this._adjustForKeyboard();
-                        }
-                    }
-                },
-
-                // This determines our positioning.  We have 5 modes, the 1st four are explicit, the last is automatic:
-                // * top - position explicitly on the top of the anchor, shrinking and adding scrollbar as needed.
-                // * bottom - position explicitly below the anchor, shrinking and adding scrollbar as needed.
-                // * left - position left of the anchor, shrinking and adding a vertical scrollbar as needed.
-                // * right - position right of the anchor, shrinking and adding a vertical scroolbar as needed.
-                // * auto - Automatic placement.
-                // Auto tests the height of the anchor and the flyout.  For consistency in orientation, we imagine
-                // that the anchor is placed in the vertical center of the display.  If the flyout would fit above
-                // that centered anchor, then we will place the flyout vertically in relation to the anchor, otherwise
-                // placement will be horizontal.
-                // Vertical auto placement will be positioned on top of the anchor if room, otherwise below the anchor.
-                //   - this is because touch users would be more likely to obscure flyouts below the anchor.
-                // Horizontal auto placement will be positioned to the left of the anchor if room, otherwise to the right.
-                //   - this is because right handed users would be more likely to obscure a flyout on the right of the anchor.
-                // Auto placement will add a vertical scrollbar if necessary.
-                _getTopLeft: function Flyout_getTopLeft() {
-                    var anchorRawRectangle = this._currentAnchor.getBoundingClientRect(),
-                        flyout = {},
-                        anchor = {};
-
-                    // Adjust for the anchor's margins.
-                    anchor.top = anchorRawRectangle.top;
-                    anchor.bottom = anchorRawRectangle.bottom;
-                    anchor.left = anchorRawRectangle.left;
-                    anchor.right = anchorRawRectangle.right;
-                    anchor.height = anchor.bottom - anchor.top;
-                    anchor.width = anchor.right - anchor.left;
-
-                    // Get our flyout and margins, note that getDimension calls
-                    // window.getComputedStyle, which ensures layout is updated.
-                    flyout.marginTop = getDimension(this._element, "marginTop");
-                    flyout.marginBottom = getDimension(this._element, "marginBottom");
-                    flyout.marginLeft = getDimension(this._element, "marginLeft");
-                    flyout.marginRight = getDimension(this._element, "marginRight");
-                    flyout.width = _ElementUtilities.getTotalWidth(this._element);
-                    flyout.height = _ElementUtilities.getTotalHeight(this._element);
-                    flyout.innerWidth = _ElementUtilities.getContentWidth(this._element);
-                    flyout.innerHeight = _ElementUtilities.getContentHeight(this._element);
-                    this._nextMarginPadding = (flyout.height - flyout.innerHeight);
-
-                    // Check fit for requested this._currentPlacement, doing fallback if necessary
-                    switch (this._currentPlacement) {
-                        case "top":
-                            if (!this._fitTop(anchor, flyout)) {
-                                // Didn't fit, needs scrollbar
-                                this._nextTop = _Overlay._Overlay._keyboardInfo._visibleDocTop;
-                                this._nextHeight = anchor.top - _Overlay._Overlay._keyboardInfo._visibleDocTop - this._nextMarginPadding;
-                            }
-                            this._centerHorizontally(anchor, flyout, this._currentAlignment);
-                            break;
-                        case "bottom":
-                            if (!this._fitBottom(anchor, flyout)) {
-                                // Didn't fit, needs scrollbar
-                                this._nextTop = -1;
-                                this._nextHeight = _Overlay._Overlay._keyboardInfo._visibleDocHeight - (anchor.bottom - _Overlay._Overlay._keyboardInfo._visibleDocTop) - this._nextMarginPadding;
-                            }
-                            this._centerHorizontally(anchor, flyout, this._currentAlignment);
-                            break;
-                        case "left":
-                            if (!this._fitLeft(anchor, flyout)) {
-                                // Didn't fit, just shove it to edge
-                                this._nextLeft = 0;
-                            }
-                            this._centerVertically(anchor, flyout);
-                            break;
-                        case "right":
-                            if (!this._fitRight(anchor, flyout)) {
-                                // Didn't fit,just shove it to edge
-                                this._nextLeft = -1;
-                            }
-                            this._centerVertically(anchor, flyout);
-                            break;
-                        case "auto":
-                            // Auto, if the anchor was in the vertical center of the display would we fit above it?
-                            if (this._sometimesFitsAbove(anchor, flyout)) {
-                                // It will fit above or below the anchor
-                                if (!this._fitTop(anchor, flyout)) {
-                                    // Didn't fit above (preferred), so go below.
-                                    this._fitBottom(anchor, flyout);
-                                }
-                                this._centerHorizontally(anchor, flyout, this._currentAlignment);
+                // Support for keyboard navigation
+                _captureLastKeyBlurOrPointerOverEvent: function (event) {
+                    this._lastKeyOrBlurEvent = this._currentKeyOrBlurEvent;
+                    switch (event.type) {
+                        case "keyup":
+                            if (event.keyCode === Key.shift) {
+                                this._currentKeyOrBlurEvent = null;
                             } else {
-                                // Won't fit above or below, try a side
-                                if (!this._fitLeft(anchor, flyout) &&
-                                    !this._fitRight(anchor, flyout)) {
-                                    // Didn't fit left or right either, is top or bottom bigger?
-                                    if (this._topHasMoreRoom(anchor)) {
-                                        // Top, won't fit, needs scrollbar
-                                        this._nextTop = _Overlay._Overlay._keyboardInfo._visibleDocTop;
-                                        this._nextHeight = anchor.top - _Overlay._Overlay._keyboardInfo._visibleDocTop - this._nextMarginPadding;
-                                    } else {
-                                        // Bottom, won't fit, needs scrollbar
-                                        this._nextTop = -1;
-                                        this._nextHeight = _Overlay._Overlay._keyboardInfo._visibleDocHeight - (anchor.bottom - _Overlay._Overlay._keyboardInfo._visibleDocTop) - this._nextMarginPadding;
-                                    }
-                                    this._centerHorizontally(anchor, flyout, this._currentAlignment);
-                                } else {
-                                    this._centerVertically(anchor, flyout);
-                                }
+                                this._currentKeyOrBlurEvent = "keyboard";
                             }
+                            break;
+                        case "focusout":
+                            //anchor element no longer in focus, clear up the stack
+                            this._currentKeyOrBlurEvent = null;
                             break;
                         default:
-                            // Not a legal this._currentPlacement value
-                            throw new _ErrorFromName("WinJS.UI.Flyout.BadPlacement", strings.badPlacement);
-                    }
+                            break;
 
-                    // Remember "bottom" in case we need to consider keyboard later, only tested for top-pinned bars
-                    this._nextBottom = this._nextTop + flyout.height;
-                },
-
-                // If the anchor is centered vertically, would the flyout fit above it?
-                _sometimesFitsAbove: function Flyout_sometimesFitsAbove(anchor, flyout) {
-                    return ((_Overlay._Overlay._keyboardInfo._visibleDocHeight - anchor.height) / 2) >= flyout.height;
-                },
-
-                _topHasMoreRoom: function Flyout_topHasMoreRoom(anchor) {
-                    return anchor.top > _Overlay._Overlay._keyboardInfo._visibleDocHeight - anchor.bottom;
-                },
-
-                // See if we can fit in various places, fitting in the main view,
-                // ignoring viewport changes, like for the IHM.
-                _fitTop: function Flyout_fitTop(anchor, flyout) {
-                    this._nextTop = anchor.top - flyout.height;
-                    this._nextAnimOffset = { top: "50px", left: "0px", keyframe: "WinJS-showFlyoutTop" };
-                    return (this._nextTop >= _Overlay._Overlay._keyboardInfo._visibleDocTop &&
-                            this._nextTop + flyout.height <= _Overlay._Overlay._keyboardInfo._visibleDocBottom);
-                },
-
-                _fitBottom: function Flyout_fitBottom(anchor, flyout) {
-                    this._nextTop = anchor.bottom;
-                    this._nextAnimOffset = { top: "-50px", left: "0px", keyframe: "WinJS-showFlyoutBottom" };
-                    return (this._nextTop >= _Overlay._Overlay._keyboardInfo._visibleDocTop &&
-                            this._nextTop + flyout.height <= _Overlay._Overlay._keyboardInfo._visibleDocBottom);
-                },
-
-                _fitLeft: function Flyout_fitLeft(anchor, flyout) {
-                    this._nextLeft = anchor.left - flyout.width;
-                    this._nextAnimOffset = { top: "0px", left: "50px", keyframe: "WinJS-showFlyoutLeft" };
-                    return (this._nextLeft >= 0 && this._nextLeft + flyout.width <= _Overlay._Overlay._keyboardInfo._visualViewportWidth);
-                },
-
-                _fitRight: function Flyout_fitRight(anchor, flyout) {
-                    this._nextLeft = anchor.right;
-                    this._nextAnimOffset = { top: "0px", left: "-50px", keyframe: "WinJS-showFlyoutRight" };
-                    return (this._nextLeft >= 0 && this._nextLeft + flyout.width <= _Overlay._Overlay._keyboardInfo._visualViewportWidth);
-                },
-
-                _centerVertically: function Flyout_centerVertically(anchor, flyout) {
-                    this._nextTop = anchor.top + anchor.height / 2 - flyout.height / 2;
-                    if (this._nextTop < _Overlay._Overlay._keyboardInfo._visibleDocTop) {
-                        this._nextTop = _Overlay._Overlay._keyboardInfo._visibleDocTop;
-                    } else if (this._nextTop + flyout.height >= _Overlay._Overlay._keyboardInfo._visibleDocBottom) {
-                        // Flag to put on bottom
-                        this._nextTop = -1;
                     }
                 },
 
-                _centerHorizontally: function Flyout_centerHorizontally(anchor, flyout, alignment) {
-                    if (alignment === "center") {
-                        this._nextLeft = anchor.left + anchor.width / 2 - flyout.width / 2;
-                    } else if (alignment === "left") {
-                        this._nextLeft = anchor.left;
-                    } else if (alignment === "right") {
-                        this._nextLeft = anchor.right - flyout.width;
-                    } else {
-                        throw new _ErrorFromName("WinJS.UI.Flyout.BadAlignment", strings.badAlignment);
-                    }
-                    if (this._nextLeft < 0) {
-                        this._nextLeft = 0;
-                    } else if (this._nextLeft + flyout.width >= _Global.document.documentElement.clientWidth) {
-                        // flag to put on right
-                        this._nextLeft = -1;
-                    }
+                _registerEventToListener: function (element, eventType) {
+                    var that = this;
+                    var handler = function (event) {
+                        that._captureLastKeyBlurOrPointerOverEvent(event);
+                        that._handleEvent(event);
+                    };
+                    _ElementUtilities._addEventListener(element, eventType, handler, false);
+
+                    this._eventListenerRemoveStack.push(function () {
+                        _ElementUtilities._removeEventListener(element, eventType, handler, false);
+                    });
                 },
 
-                _updateAdjustments: function Flyout_updateAdjustments(alignment) {
-                    // Move to 0,0 in case it is off screen, so that it lays out at a reasonable size
-                    this._element.style.top = "0px";
-                    this._element.style.bottom = "auto";
-                    this._element.style.left = "0px";
-                    this._element.style.right = "auto";
-
-                    // Scrolling may not be necessary
-                    _ElementUtilities.removeClass(this._element, _Constants.scrollsClass);
-                    if (this._lastMaxHeight !== null) {
-                        this._element.style.maxHeight = this._lastMaxHeight;
-                        this._lastMaxHeight = null;
+                _events: function () {
+                    for (var eventType in EVENTS_INVOKE) {
+                        this._registerEventToListener(this._anchorElement, eventType);
                     }
-                    // Alignment
-                    if (alignment === "center") {
-                        _ElementUtilities.removeClass(this._element, "win-leftalign");
-                        _ElementUtilities.removeClass(this._element, "win-rightalign");
-                    } else if (alignment === "left") {
-                        _ElementUtilities.addClass(this._element, "win-leftalign");
-                        _ElementUtilities.removeClass(this._element, "win-rightalign");
-                    } else if (alignment === "right") {
-                        _ElementUtilities.addClass(this._element, "win-rightalign");
-                        _ElementUtilities.removeClass(this._element, "win-leftalign");
+                    for (var eventType in EVENTS_UPDATE) {
+                        this._registerEventToListener(this._anchorElement, eventType);
                     }
+                    for (eventType in EVENTS_DISMISS) {
+                        this._registerEventToListener(this._anchorElement, eventType);
+                    }
+                    this._registerEventToListener(this._anchorElement, "contextmenu");
+                    this._registerEventToListener(this._anchorElement, "MSHoldVisual");
                 },
 
-                _showingKeyboard: function Flyout_showingKeyboard(event) {
-                    if (this.hidden) {
-                        return;
-                    }
-
-                    // The only way that we can be showing a keyboard when a flyout is up is because the input was
-                    // in the flyout itself, in which case we'll be moving ourselves.  There is no practical way
-                    // for the application to override this as the focused element is in our flyout.
-                    event.ensuredFocusedElementInView = true;
-
-                    // See if the keyboard is going to force us to move
-                    this._checkKeyboardFit();
-
-                    if (this._keyboardMovedUs) {
-                        // Pop out immediately, then move to new spot
-                        this._element.style.opacity = 0;
-                        var that = this;
-                        _Global.setTimeout(function () { that._adjustForKeyboard(); that._baseAnimateIn(); }, _Overlay._Overlay._keyboardInfo._animationShowLength);
-                    }
-                },
-
-                _resize: function Flyout_resize() {
-                    // If hidden and not busy animating, then nothing to do
-                    if (this.hidden && !this._animating) {
-                        return;
-                    }
-
-                    // This should only happen if the IHM is dismissing,
-                    // the only other way is for viewstate changes, which
-                    // would dismiss any flyout.
-                    if (this._needToHandleHidingKeyboard) {
-                        // Hiding keyboard, update our position, giving the anchor a chance to update first.
-                        var that = this;
-                        _BaseUtils._setImmediate(function () { that._findPosition(); });
-                        this._needToHandleHidingKeyboard = false;
-                    }
-                },
-
-                _checkKeyboardFit: function Flyout_checkKeyboardFit() {
-                    // Check for moving to fit keyboard:
-                    // - Too Tall, above top, or below bottom.
-                    var height = _ElementUtilities.getTotalHeight(this._element);
-                    var viewportHeight = _Overlay._Overlay._keyboardInfo._visibleDocHeight - this._nextMarginPadding;
-                    if (height > viewportHeight) {
-                        // Too Tall, pin to top with max height
-                        this._keyboardMovedUs = true;
-                        this._scrollTop = 0;
-                        this._keyboardSquishedUs = viewportHeight;
-                    } else if (this._nextTop === -1) {
-                        // Pinned to bottom counts as moved
-                        this._keyboardMovedUs = true;
-                    } else if (this._nextTop < _Overlay._Overlay._keyboardInfo._visibleDocTop) {
-                        // Above the top of the viewport
-                        this._scrollTop = 0;
-                        this._keyboardMovedUs = true;
-                    } else if (this._nextBottom > _Overlay._Overlay._keyboardInfo._visibleDocBottom) {
-                        // Below the bottom of the viewport
-                        this._scrollTop = -1;
-                        this._keyboardMovedUs = true;
-                    }
-                },
-
-                _adjustForKeyboard: function Flyout_adjustForKeyboard() {
-                    // Keyboard moved us, update our metrics as needed
-                    if (this._keyboardSquishedUs) {
-                        // Add scrollbar if we didn't already have scrollsClass
-                        if (!this._hasScrolls) {
-                            _ElementUtilities.addClass(this._element, _Constants.scrollsClass);
-                            this._lastMaxHeight = this._element.style.maxHeight;
-                        }
-                        // Adjust height
-                        this._element.style.maxHeight = this._keyboardSquishedUs + "px";
-                    }
-
-                    // Update top/bottom
-                    this._checkScrollPosition(true);
-                },
-
-                _hidingKeyboard: function Flyout_hidingKeyboard() {
-                    // If we aren't visible and not animating, or haven't been repositioned, then nothing to do
-                    // We don't know if the keyboard moved the anchor, so _keyboardMovedUs doesn't help here
-                    if (this.hidden && !this._animating) {
-                        return;
-                    }
-
-                    // Snap to the final position
-                    // We'll either just reveal the current space or resize the window
-                    if (_Overlay._Overlay._keyboardInfo._isResized) {
-                        // Flag resize that we'll need an updated position
-                        this._needToHandleHidingKeyboard = true;
-                    } else {
-                        // Not resized, update our final position, giving the anchor a chance to update first.
-                        var that = this;
-                        _BaseUtils._setImmediate(function () { that._findPosition(); });
-                    }
-                },
-
-                _checkScrollPosition: function Flyout_checkScrollPosition(showing) {
-                    if (this.hidden && !showing) {
-                        return;
-                    }
-
-                    // May need to adjust top by viewport offset
-                    if (this._scrollTop < 0) {
-                        // Need to attach to bottom
-                        this._element.style.bottom = _Overlay._Overlay._keyboardInfo._visibleDocBottomOffset + "px";
-                        this._element.style.top = "auto";
-                    } else {
-                        // Normal, attach to top
-                        this._element.style.top =  _Overlay._Overlay._keyboardInfo._visibleDocTop + "px";
-                        this._element.style.bottom = "auto";
-                    }
-                },
-
-                // AppBar flyout animations
-                _flyoutAnimateIn: function Flyout_flyoutAnimateIn() {
-                    if (this._keyboardMovedUs) {
-                        return this._baseAnimateIn();
-                    } else {
-                        this._element.style.opacity = 1;
-                        this._element.style.visibility = "visible";
-                        return Animations.showPopup(this._element, this._nextAnimOffset);
-                    }
-                },
-
-                _flyoutAnimateOut: function Flyout_flyoutAnimateOut() {
-                    if (this._keyboardMovedUs) {
-                        return this._baseAnimateOut();
-                    } else {
-                        this._element.style.opacity = 0;
-                        return Animations.hidePopup(this._element, this._nextAnimOffset);
-                    }
-                },
-
-                // Hide all other flyouts besides this one
-                _hideAllOtherFlyouts: function Flyout_hideAllOtherFlyouts(thisFlyout) {
-                    var flyouts = _Global.document.querySelectorAll("." + _Constants.flyoutClass);
-                    for (var i = 0; i < flyouts.length; i++) {
-                        var flyoutControl = flyouts[i].winControl;
-                        if (flyoutControl && !flyoutControl.hidden && (flyoutControl !== thisFlyout)) {
-                            flyoutControl.hide();
+                _handleEvent: function (event) {
+                    var eventType = event._normalizedType || event.type;
+                    if (!this._triggerByOpen) {
+                        // If the anchor element has children, we should ignore events that are caused within the anchor element
+                        // Please note that we are not using event.target here as in bubbling phases from the child, the event target
+                        // is usually the child
+                        if (eventType in EVENTS_BY_CHILD && _ElementUtilities.eventWithinElement(this._anchorElement, event)) {
+                            return;
+                        } else if (isInvokeEvent(eventType, event.pointerType)) {
+                            if (event.pointerType === PT_TOUCH) {
+                                if (!this._isShown) {
+                                    this._showTrigger = "touch";
+                                }
+                                this._onInvoke("touch", "never", event);
+                            } else if (this._skipMouseOver && event.pointerType === PT_MOUSE && eventType === "pointerover") {
+                                // In browsers which use touch (instead of pointer) events, when the user taps their finger on
+                                // an element which has a tooltip, we receive the following sequence of events:
+                                //   - pointerdown (from touchstart; causes the Tooltip to show)
+                                //   - pointerup (from touchend; causes the Tooltip to hide)
+                                //   - pointerover (from mouseover; causes the Tooltip to show)
+                                // At the end, the Tooltip should be hidden but instead it'll be shown due to mouseover coming
+                                // after touchend. To avoid this problem, we use the _skipMouseOver flag to ignore the mouseover
+                                // that follows touchend.
+                                this._skipMouseOver = false;
+                                return;
+                            } else {
+                                var type = eventType.substring(0, 3) === "key" ? "keyboard" : "mouse";
+                                if (!this._isShown) {
+                                    this._showTrigger = type;
+                                }
+                                this._onInvoke(type, "auto", event);
+                            }
+                        } else if (eventType in EVENTS_UPDATE) {
+                            this._contactPoint = { x: event.clientX, y: event.clientY };
+                        } else if (isDismissEvent(eventType, event.pointerType)) {
+                            var eventTrigger;
+                            if (event.pointerType === PT_TOUCH) {
+                                if (eventType === "pointerup") {
+                                    this._skipMouseOver = true;
+                                    var that = this;
+                                    _BaseUtils._yieldForEvents(function () {
+                                        that._skipMouseOver = false;
+                                    });
+                                }
+                                eventTrigger = "touch";
+                            } else {
+                                eventTrigger = eventType.substring(0, 3) === "key" ? "keyboard" : "mouse";
+                            }
+                            if (eventType !== "focusout" && eventTrigger !== this._showTrigger) {
+                                return;
+                            }
+                            this._onDismiss();
+                        } else if (eventType === "contextmenu" || eventType === "MSHoldVisual") {
+                            event.preventDefault();
                         }
                     }
                 },
 
-                // Returns true if there is a flyout in the DOM that is not hidden
-                _isThereVisibleFlyout: function Flyout_isThereVisibleFlyout() {
-                    var flyouts = _Global.document.querySelectorAll("." + _Constants.flyoutClass);
-                    for (var i = 0; i < flyouts.length; i++) {
-                        var flyoutControl = flyouts[i].winControl;
-                        if (flyoutControl && !flyoutControl.hidden) {
-                            return true;
+                _onShowAnimationEnd: function () {
+                    if (this._shouldDismiss || this._disposed) {
+                        return;
+                    }
+                    this._raiseEvent("opened");
+                    if (this._domElement) {
+                        if (this._hideDelay !== "never") {
+                            var that = this;
+                            var delay = this._infotip ? Math.min(3 * messageDuration, HIDE_DELAY_MAX) : messageDuration;
+                            this._hideDelayTimer = this._setTimeout(function () {
+                                that._onDismiss();
+                            }, delay);
                         }
                     }
-
-                    return false;
                 },
 
-                _handleKeyDown: function Flyout_handleKeyDown(event) {
-                    // Escape closes flyouts but if the user has a text box with an IME candidate
-                    // window open, we want to skip the ESC key event since it is handled by the IME.
-                    // When the IME handles a key it sets event.keyCode === Key.IME for an easy check.
-                    if (event.keyCode === Key.escape && event.keyCode !== Key.IME) {
-                        // Show a focus rect on what we move focus to
-                        event.preventDefault();
-                        event.stopPropagation();
-                        this.winControl._keyboardInvoked = true;
-                        this.winControl._hide();
-                    } else if ((event.keyCode === Key.space || event.keyCode === Key.enter)
-                         && (this === _Global.document.activeElement)) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        this.winControl.hide();
-                    } else if (event.shiftKey && event.keyCode === Key.tab
-                          && this === _Global.document.activeElement
-                          && !event.altKey && !event.ctrlKey && !event.metaKey) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        this.winControl._focusOnLastFocusableElementOrThis();
+                _onHideAnimationEnd: function () {
+                    _Global.document.body.removeEventListener("DOMNodeRemoved", this._removeTooltip, false);
+                    this._cleanUpDOM();
+                    // Once we remove the tooltip from the DOM, we should remove the aria tag from the anchor
+                    if (this._anchorElement) {
+                        this._anchorElement.removeAttribute("aria-describedby");
+                    }
+                    lastCloseTime = (new Date()).getTime();
+                    this._triggerByOpen = false;
+                    if (!this._disposed) {
+                        this._raiseEvent("closed");
                     }
                 },
 
-                // Create and add a new first div as the first child
-                _addFirstDiv: function Flyout_addFirstDiv() {
-                    var firstDiv = _Global.document.createElement("div");
-                    firstDiv.className = _Constants.firstDivClass;
-                    firstDiv.style.display = "inline";
-                    firstDiv.setAttribute("role", "menuitem");
-                    firstDiv.setAttribute("aria-hidden", "true");
+                _decideOnDelay: function (type) {
+                    var value;
+                    this._useAnimation = true;
 
-                    // add to beginning
-                    if (this._element.children[0]) {
-                        this._element.insertBefore(firstDiv, this._element.children[0]);
+                    if (type === "nodelay") {
+                        value = 0;
+                        this._useAnimation = false;
                     } else {
-                        this._element.appendChild(firstDiv);
+                        var curTime = (new Date()).getTime();
+                        // If the mouse is moved immediately from another anchor that has
+                        // tooltip open, we should use a shorter delay
+                        if (curTime - lastCloseTime <= RESHOW_THRESHOLD) {
+                            if (type === "touch") {
+                                value = this._infotip ? DELAY_RESHOW_INFOTIP_TOUCH : DELAY_RESHOW_NONINFOTIP_TOUCH;
+                            } else {
+                                value = this._infotip ? DELAY_RESHOW_INFOTIP_NONTOUCH : DELAY_RESHOW_NONINFOTIP_NONTOUCH;
+                            }
+                            this._useAnimation = false;
+                        } else if (type === "touch") {
+                            value = this._infotip ? DELAY_INITIAL_TOUCH_LONG : DELAY_INITIAL_TOUCH_SHORT;
+                        } else {
+                            value = this._infotip ? infoTooltipNonTouchShowDelay : nonInfoTooltipNonTouchShowDelay;
+                        }
+                    }
+                    return value;
+                },
+
+                // This function returns the anchor element's position in the Window coordinates.
+                _getAnchorPositionFromElementWindowCoord: function () {
+                    var rect = this._anchorElement.getBoundingClientRect();
+
+                    return {
+                        x: rect.left,
+                        y: rect.top,
+                        width: rect.width,
+                        height: rect.height
+                    };
+                },
+
+                _getAnchorPositionFromPointerWindowCoord: function (contactPoint) {
+                    return {
+                        x: contactPoint.x,
+                        y: contactPoint.y,
+                        width: 1,
+                        height: 1
+                    };
+                },
+
+                _canPositionOnSide: function (placement, viewport, anchor, tip) {
+                    var availWidth = 0, availHeight = 0;
+
+                    switch (placement) {
+                        case "top":
+                            availWidth = tip.width + this._offset;
+                            availHeight = anchor.y;
+                            break;
+                        case "bottom":
+                            availWidth = tip.width + this._offset;
+                            availHeight = viewport.height - anchor.y - anchor.height;
+                            break;
+                        case "left":
+                            availWidth = anchor.x;
+                            availHeight = tip.height + this._offset;
+                            break;
+                        case "right":
+                            availWidth = viewport.width - anchor.x - anchor.width;
+                            availHeight = tip.height + this._offset;
+                            break;
+                    }
+                    return ((availWidth >= tip.width + this._offset) && (availHeight >= tip.height + this._offset));
+                },
+
+                _positionOnSide: function (placement, viewport, anchor, tip) {
+                    var left = 0, top = 0;
+
+                    switch (placement) {
+                        case "top":
+                        case "bottom":
+                            // Align the tooltip to the anchor's center horizontally
+                            left = anchor.x + anchor.width / 2 - tip.width / 2;
+
+                            // If the left boundary is outside the window, set it to 0
+                            // If the right boundary is outside the window, set it to align with the window right boundary
+                            left = Math.min(Math.max(left, 0), viewport.width - tip.width - SAFETY_NET_GAP);
+
+                            top = (placement === "top") ? anchor.y - tip.height - this._offset : anchor.y + anchor.height + this._offset;
+                            break;
+                        case "left":
+                        case "right":
+                            // Align the tooltip to the anchor's center vertically
+                            top = anchor.y + anchor.height / 2 - tip.height / 2;
+
+                            // If the top boundary is outside the window, set it to 0
+                            // If the bottom boundary is outside the window, set it to align with the window bottom boundary
+                            top = Math.min(Math.max(top, 0), viewport.height - tip.height - SAFETY_NET_GAP);
+
+                            left = (placement === "left") ? anchor.x - tip.width - this._offset : anchor.x + anchor.width + this._offset;
+                            break;
+                    }
+
+                    // Actually set the position
+                    this._domElement.style.left = left + "px";
+                    this._domElement.style.top = top + "px";
+
+                    // Set the phantom's position and size
+                    this._phantomDiv.style.left = left + "px";
+                    this._phantomDiv.style.top = top + "px";
+                    this._phantomDiv.style.width = tip.width + "px";
+                    this._phantomDiv.style.height = tip.height + "px";
+                },
+
+                _position: function (contactType) {
+                    var viewport = { width: 0, height: 0 };
+                    var anchor = { x: 0, y: 0, width: 0, height: 0 };
+                    var tip = { width: 0, height: 0 };
+
+                    viewport.width = _Global.document.documentElement.clientWidth;
+                    viewport.height = _Global.document.documentElement.clientHeight;
+                    if (_Global.document.defaultView.getComputedStyle(_Global.document.body, null)["writing-mode"] === "tb-rl") {
+                        viewport.width = _Global.document.documentElement.clientHeight;
+                        viewport.height = _Global.document.documentElement.clientWidth;
+                    }
+
+                    if (this._contactPoint && (contactType === "touch" || contactType === "mouse")) {
+                        anchor = this._getAnchorPositionFromPointerWindowCoord(this._contactPoint);
+                    } else {
+                        // keyboard or programmatic is relative to element
+                        anchor = this._getAnchorPositionFromElementWindowCoord();
+                    }
+                    tip.width = this._domElement.offsetWidth;
+                    tip.height = this._domElement.offsetHeight;
+                    var fallback_order = {
+                        "top": ["top", "bottom", "left", "right"],
+                        "bottom": ["bottom", "top", "left", "right"],
+                        "left": ["left", "right", "top", "bottom"],
+                        "right": ["right", "left", "top", "bottom"]
+                    };
+                    if (isLeftHanded) {
+                        fallback_order.top[2] = "right";
+                        fallback_order.top[3] = "left";
+                        fallback_order.bottom[2] = "right";
+                        fallback_order.bottom[3] = "left";
+                    }
+
+                    // Try to position the tooltip according to the placement preference
+                    // We use this order:
+                    // 1. Try the preferred placement
+                    // 2. Try the opposite placement
+                    // 3. If the preferred placement is top or bottom, we should try left
+                    // and right (or right and left if left handed)
+                    // If the preferred placement is left or right, we should try top and bottom
+                    var order = fallback_order[this._placement];
+                    var length = order.length;
+                    for (var i = 0; i < length; i++) {
+                        if (i === length - 1 || this._canPositionOnSide(order[i], viewport, anchor, tip)) {
+                            this._positionOnSide(order[i], viewport, anchor, tip);
+                            break;
+                        }
+                    }
+                    return order[i];
+                },
+
+                _showTooltip: function (contactType) {
+                    // Give a chance to dismiss the tooltip before it starts to show
+                    if (this._shouldDismiss) {
+                        return;
+                    }
+                    this._isShown = true;
+                    this._raiseEvent("beforeopen");
+
+                    // If the anchor is not in the DOM tree, we don't create the tooltip
+                    if (!_Global.document.body.contains(this._anchorElement)) {
+                        return;
+                    }
+                    if (this._shouldDismiss) {
+                        return;
+                    }
+
+                    // If the contentElement is set to null or innerHTML set to null or "", we should NOT show the tooltip
+                    if (this._lastContentType === "element") { // Last update through contentElement option
+                        if (!this._contentElement) {
+                            this._isShown = false;
+                            return;
+                        }
+                    } else { // Last update through innerHTML option
+                        if (!this._innerHTML || this._innerHTML === "") {
+                            this._isShown = false;
+                            return;
+                        }
                     }
 
                     var that = this;
-                    _ElementUtilities._addEventListener(firstDiv, "focusin", function () { that._focusOnLastFocusableElementOrThis(); }, false);
+                    this._removeTooltip = function (event) {
+                        var current = that._anchorElement;
+                        while (current) {
+                            if (event.target === current) {
+                                _Global.document.body.removeEventListener("DOMNodeRemoved", that._removeTooltip, false);
+                                that._cleanUpDOM();
+                                break;
+                            }
+                            current = current.parentNode;
+                        }
+                    };
 
-                    return firstDiv;
+                    _Global.document.body.addEventListener("DOMNodeRemoved", this._removeTooltip, false);
+                    this._createTooltipDOM();
+                    this._position(contactType);
+                    if (this._useAnimation) {
+                        Animations.fadeIn(this._domElement)
+                            .then(this._onShowAnimationEnd.bind(this));
+                    } else {
+                        this._onShowAnimationEnd();
+                    }
                 },
 
-                // Create and add a new final div as the last child
-                _addFinalDiv: function Flyout_addFinalDiv() {
-                    var finalDiv = _Global.document.createElement("div");
-                    finalDiv.className = _Constants.finalDivClass;
-                    finalDiv.style.display = "inline";
-                    finalDiv.setAttribute("role", "menuitem");
-                    finalDiv.setAttribute("aria-hidden", "true");
+                _onInvoke: function (type, hide, event) {
+                    // Reset the dismiss flag
+                    this._shouldDismiss = false;
 
-                    this._element.appendChild(finalDiv);
-                    var that = this;
-                    _ElementUtilities._addEventListener(finalDiv, "focusin", function () { that._focusOnFirstFocusableElementOrThis(); }, false);
+                    // If the tooltip is already shown, ignore the current event
+                    if (this._isShown) {
+                        return;
+                    }
 
-                    return finalDiv;
+                    // To handle keyboard support, we only want to display tooltip on the first tab key event only
+                    if (event && event.type === "keyup") {
+                        if (this._lastKeyOrBlurEvent === "keyboard" ||
+                            !this._lastKeyOrBlurEvent && event.keyCode !== Key.tab) {
+                            return;
+                        }
+                    }
+
+                    // Set the hide delay,
+                    this._hideDelay = hide;
+
+                    this._contactPoint = null;
+                    if (event) { // Open through interaction
+                        this._contactPoint = { x: event.clientX, y: event.clientY };
+                        // Tooltip display offset differently for touch events and non-touch events
+                        if (type === "touch") {
+                            this._offset = OFFSET_TOUCH;
+                        } else if (type === "keyboard") {
+                            this._offset = OFFSET_KEYBOARD;
+                        } else {
+                            this._offset = OFFSET_MOUSE;
+                        }
+                    } else { // Open Programmatically
+                        if (type === "touch") {
+                            this._offset = OFFSET_PROGRAMMATIC_TOUCH;
+                        } else {
+                            this._offset = OFFSET_PROGRAMMATIC_NONTOUCH;
+                        }
+                    }
+
+                    this._clearTimeout(this._delayTimer);
+                    this._clearTimeout(this._hideDelayTimer);
+
+                    // Set the delay time
+                    var delay = this._decideOnDelay(type);
+                    if (delay > 0) {
+                        var that = this;
+                        this._delayTimer = this._setTimeout(function () {
+                            that._showTooltip(type);
+                        }, delay);
+                    } else {
+                        this._showTooltip(type);
+                    }
                 },
 
-                _writeProfilerMark: function Flyout_writeProfilerMark(text) {
-                    _WriteProfilerMark("WinJS.UI.Flyout:" + this._id + ":" + text);
+                _onDismiss: function () {
+                    // Set the dismiss flag so that we don't miss dismiss events
+                    this._shouldDismiss = true;
+
+                    // If the tooltip is already dismissed, ignore the current event
+                    if (!this._isShown) {
+                        return;
+                    }
+
+                    this._isShown = false;
+
+                    // Reset tooltip state
+                    this._showTrigger = "mouse";
+
+                    if (this._domElement) {
+                        this._raiseEvent("beforeclose");
+                        if (this._useAnimation) {
+                            Animations.fadeOut(this._domElement)
+                                .then(this._onHideAnimationEnd.bind(this));
+                        } else {
+                            this._onHideAnimationEnd();
+                        }
+                    } else {
+                        this._raiseEvent("beforeclose");
+                        this._raiseEvent("closed");
+                    }
+                },
+
+                _setTimeout: function (callback, delay) {
+                    return _Global.setTimeout(callback, delay);
+                },
+
+                _clearTimeout: function (id) {
+                    _Global.clearTimeout(id);
                 }
+            }, {
+
+                _DELAY_INITIAL_TOUCH_SHORT: {
+                    get: function () { return DELAY_INITIAL_TOUCH_SHORT; },
+                },
+
+                _DELAY_INITIAL_TOUCH_LONG: {
+                    get: function () { return DELAY_INITIAL_TOUCH_LONG ; }
+                },
+
+                _DEFAULT_MOUSE_HOVER_TIME: {
+                    get: function () { return DEFAULT_MOUSE_HOVER_TIME; }
+                },
+
+                _DEFAULT_MESSAGE_DURATION: {
+                    get: function () { return DEFAULT_MESSAGE_DURATION; }
+                },
+
+                _DELAY_RESHOW_NONINFOTIP_TOUCH: {
+                    get: function () { return DELAY_RESHOW_NONINFOTIP_TOUCH; }
+                },
+
+                _DELAY_RESHOW_NONINFOTIP_NONTOUCH: {
+                    get: function () { return DELAY_RESHOW_NONINFOTIP_NONTOUCH; }
+                },
+
+                _DELAY_RESHOW_INFOTIP_TOUCH: {
+                    get: function () { return DELAY_RESHOW_INFOTIP_TOUCH; }
+                },
+
+                _DELAY_RESHOW_INFOTIP_NONTOUCH: {
+                    get: function () { return DELAY_RESHOW_INFOTIP_NONTOUCH; }
+                },
+
+                _RESHOW_THRESHOLD: {
+                    get: function () { return RESHOW_THRESHOLD; }
+                },
+
+                _HIDE_DELAY_MAX: {
+                    get: function () { return HIDE_DELAY_MAX; }
+                },
             });
-            return Flyout;
         })
     });
 
@@ -40355,7 +35066,7 @@ define('WinJS/Controls/AppBar/_Icon',[
 // Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 // AppBarCommand
 /// <dictionary>appbar,appbars,Flyout,Flyouts,onclick,Statics</dictionary>
-define('WinJS/Controls/AppBar/_Command',[
+define('WinJS/Controls/AppBar/_CommandPhone',[
     'exports',
     '../../Core/_Global',
     '../../Core/_WinRT',
@@ -40382,15 +35093,11 @@ define('WinJS/Controls/AppBar/_Command',[
         /// <icon src="ui_winjs.ui.appbarcommand.16x16.png" width="16" height="16" />
         /// <htmlSnippet><![CDATA[<button data-win-control="WinJS.UI.AppBarCommand" data-win-options="{type:'button',label:'Button'}"></button>]]></htmlSnippet>
         /// <part name="appBarCommand" class="win-command" locid="WinJS.UI.AppBarCommand_part:appBarCommand">The AppBarCommand control itself.</part>
-        /// <part name="appBarCommandIcon" class="win-commandicon" locid="WinJS.UI.AppBarCommand_part:appBarCommandIcon">The AppBarCommand's icon box.</part>
-        /// <part name="appBarCommandImage" class="win-commandimage" locid="WinJS.UI.AppBarCommand_part:appBarCommandImage">The AppBarCommand's icon's image formatting.</part>
-        /// <part name="appBarCommandRing" class="win-commandring" locid="WinJS.UI.AppBarCommand_part:appBarCommandRing">The AppBarCommand's icon's ring.</part>
-        /// <part name="appBarCommandLabel" class="win-label" locid="WinJS.UI.AppBarCommand_part:appBarCommandLabel">The AppBarCommand's label</part>
         /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
         /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
         /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
         AppBarCommand: _Base.Namespace._lazy(function () {
-
+            var core = _WinRT.Windows.UI.WebUI.Core;
 
             function _handleClick(event) {
                 /*jshint validthis: true */
@@ -40398,23 +35105,6 @@ define('WinJS/Controls/AppBar/_Command',[
                 if (command) {
                     if (command._type === _Constants.typeToggle) {
                         command.selected = !command.selected;
-                    } else if (command._type === _Constants.typeFlyout && command._flyout) {
-                        var parentAppBar = _Overlay._Overlay._getParentControlUsingClassName(this, _Constants.appBarClass);
-                        var placement = "top";
-                        if (parentAppBar && parentAppBar.placement === "top") {
-                            placement = "bottom";
-                        }
-                        var flyout = command._flyout;
-                        // Flyout may not have processAll'd, so this may be a DOM object
-                        if (typeof flyout === "string") {
-                            flyout = _Global.document.getElementById(flyout);
-                        }
-                        if (!flyout.show) {
-                            flyout = flyout.winControl;
-                        }
-                        if (flyout && flyout.show) {
-                            flyout.show(this, placement);
-                        }
                     }
                     if (command.onclick) {
                         command.onclick(event);
@@ -40422,13 +35112,24 @@ define('WinJS/Controls/AppBar/_Command',[
                 }
             }
 
+            // Duplicate code from Overlay static member function.
+            function _getParentControlUsingClassName(element, className) {
+                while (element && element !== _Global.document.body) {
+                    if (_ElementUtilities.hasClass(element, className)) {
+                        return element.winControl;
+                    }
+                    element = element.parentNode;
+                }
+                return null;
+            }
+
             var strings = {
-                get ariaLabel() { return _Resources._getWinJSString("ui/appBarCommandAriaLabel").value; },
                 get duplicateConstruction() { return "Invalid argument: Controls may only be instantiated one time for each DOM element"; },
                 get badClick() { return "Invalid argument: The onclick property for an {0} must be a function"; },
                 get badDivElement() { return "Invalid argument: For a content command, the element must be null or a div element"; },
                 get badHrElement() { return "Invalid argument: For a separator, the element must be null or an hr element"; },
-                get badButtonElement() { return "Invalid argument: For a button, toggle, or flyout command, the element must be null or a button element"; }
+                get badButtonElement() { return "Invalid argument: For a button, toggle, or flyout command, the element must be null or a button element"; },
+                get cannotChangeHiddenProperty() { return "Unable to set hidden property while parent {0} is visible."; } // Duplicate string getter from overlay
             };
 
             return _Base.Class.define(function AppBarCommand_ctor(element, options) {
@@ -40455,29 +35156,21 @@ define('WinJS/Controls/AppBar/_Command',[
                 this._disposed = false;
 
                 // Don't blow up if they didn't pass options
-                if (!options) {
-                    options = {};
-                }
+                options = options || {};
 
                 // Need a type before we can create our element
-                if (!options.type) {
-                    this._type = _Constants.typeButton;
-                }
+                options.type = options.type || _Constants.typeButton;
+
+                options.disabled = options.disabled || false;
 
                 options.section = options.section || _Constants.sectionGlobal;
 
-                // Go ahead and create it, separator and content types look different than buttons
                 // Don't forget to use passed in element if one was provided.
                 this._element = element;
 
-                if (options.type === _Constants.typeContent) {
-                    this._createContent();
-                } else if (options.type === _Constants.typeSeparator) {
-                    this._createSeparator();
-                } else {
-                    // This will also set the icon & label
-                    this._createButton();
-                }
+                // This will also set the icon & label
+                this._createButton();
+
                 _ElementUtilities.addClass(this._element, "win-disposable");
 
                 // Remember ourselves
@@ -40489,6 +35182,12 @@ define('WinJS/Controls/AppBar/_Command',[
                 if (options.onclick) {
                     this.onclick = options.onclick;
                 }
+
+                // Create CommandBarIconButton for the commandBar, forward 'iteminvoked' events to the AppBarCommand element.
+                this._commandBarIconButton = new core.WebUICommandBarIconButton();
+                this._forwardCommandBarIconButtonClick = this.element.click.bind(this.element);
+                this._commandBarIconButton.addEventListener('iteminvoked', this._forwardCommandBarIconButtonClick, false);
+
                 // We want to handle some clicks
                 options.onclick = _handleClick;
 
@@ -40498,34 +35197,6 @@ define('WinJS/Controls/AppBar/_Command',[
                     this.selected = false;
                 }
 
-                // Set up pointerdown handler and clean up ARIA if needed
-                if (this._type !== _Constants.typeSeparator) {
-
-                    // Hide the modern focus rect on click or touch
-                    var that = this;
-                    _ElementUtilities._addEventListener(this._element, "pointerdown", function () { _Overlay._Overlay._addHideFocusClass(that._element); }, false);
-
-                    // Make sure we have an ARIA role
-                    var role = this._element.getAttribute("role");
-                    if (role === null || role === "" || role === undefined) {
-                        if (this._type === _Constants.typeToggle) {
-                            role = "menuitemcheckbox";
-                        } else if (this._type === _Constants.typeContent) {
-                            role = "group";
-                        } else {
-                            role = "menuitem";
-                        }
-                        this._element.setAttribute("role", role);
-                        if (this._type === _Constants.typeFlyout) {
-                            this._element.setAttribute("aria-haspopup", true);
-                        }
-                    }
-                    // Label should've been set by label, but if it was missed for some reason:
-                    var label = this._element.getAttribute("aria-label");
-                    if (label === null || label === "" || label === undefined) {
-                        this._element.setAttribute("aria-label", strings.ariaLabel);
-                    }
-                }
             }, {
                 /// <field type="String" locid="WinJS.UI.AppBarCommand.id" helpKeyword="WinJS.UI.AppBarCommand.id" isAdvanced="true">
                 /// Gets or sets the ID of the AppBarCommand.
@@ -40544,19 +35215,21 @@ define('WinJS/Controls/AppBar/_Command',[
                 },
 
                 /// <field type="String" defaultValue="button" readonly="true" oamOptionsDatatype="WinJS.UI.AppBarCommand.type" locid="WinJS.UI.AppBarCommand.type" helpKeyword="WinJS.UI.AppBarCommand.type" isAdvanced="true">
-                /// Gets or sets the type of the AppBarCommand. Possible values are "button", "toggle", "flyout", "content" or "separator".
+                /// Gets or sets the type of the AppBarCommand. Possible values are "button" and "toggle"
                 /// </field>
                 type: {
                     get: function () {
-                        return this._type;
+                        return (this._commandBarIconButton.isToggleButton ? _Constants.typeToggle : _Constants.typeButton);
                     },
                     set: function (value) {
                         // we allow setting first time only. otherwise we ignore it.
                         if (!this._type) {
-                            if (value !== _Constants.typeContent && value !== _Constants.typeFlyout && value !== _Constants.typeToggle && value !== _Constants.typeSeparator) {
-                                this._type = _Constants.typeButton;
-                            } else {
+                            if (value === _Constants.typeToggle) {
                                 this._type = value;
+                                this._commandBarIconButton.isToggleButton = true;
+                            } else {
+                                this._type = _Constants.typeButton;
+                                this._commandBarIconButton.isToggleButton = false;
                             }
                         }
                     }
@@ -40567,25 +35240,13 @@ define('WinJS/Controls/AppBar/_Command',[
                 /// </field>
                 label: {
                     get: function () {
-                        return this._label;
+                        return this._commandBarIconButton.label;
                     },
                     set: function (value) {
-                        this._label = value;
+                        this._commandBarIconButton.label = value;
                         if (this._labelSpan) {
-                            this._labelSpan.textContent = this.label;
+                            this._labelSpan.textContent = value;
                         }
-
-                        // Ensure that we have a tooltip, by updating already-constructed tooltips.  Separators won't have these:
-                        if (!this.tooltip && this._tooltipControl) {
-                            this._tooltip = this.label;
-                            this._tooltipControl.innerHTML = this.label;
-                        }
-
-                        // Update aria-label
-                        this._element.setAttribute("aria-label", this.label);
-
-                        // Check if we need to suppress the tooltip
-                        this._testIdenticalTooltip();
                     }
                 },
 
@@ -40607,11 +35268,28 @@ define('WinJS/Controls/AppBar/_Command',[
                                 this._imageSpan.textContent = this._icon;
                                 this._imageSpan.style.backgroundImage = "";
                                 this._imageSpan.style.msHighContrastAdjust = "";
+                                this._commandBarIconButton.icon = new core.WebUICommandBarSymbolIcon(this._icon);
                             } else {
                                 // Must be an image, set that
                                 this._imageSpan.textContent = "";
                                 this._imageSpan.style.backgroundImage = this._icon;
                                 this._imageSpan.style.msHighContrastAdjust = "none";
+
+                                // Parse the image url into a WebUICommandBarButtonBitmapIcon.
+                                // Use computed style to get a normalized "url(\"<pathname>\")" string from the DOM.
+                                var imageUrl = _Global.getComputedStyle(this._imageSpan).backgroundImage;
+                                // Make sure returned value is a url.
+                                if (imageUrl.substring(0, 3) === 'url') {
+                                    // Remove "url(" from the string.
+                                    imageUrl = imageUrl.split("(")[1];
+                                    // Extract <pathname> from inbetween the inner double quotes.
+                                    imageUrl = imageUrl.split("\"")[1];
+
+                                    // Create WinRT BitMapIcon
+                                    var bmi = new core.WebUICommandBarBitmapIcon();
+                                    bmi.uri = new _WinRT.Windows.Foundation.Uri(imageUrl);
+                                    this._commandBarIconButton.icon = bmi;
+                                }
                             }
                         }
                     }
@@ -40632,53 +35310,6 @@ define('WinJS/Controls/AppBar/_Command',[
                     }
                 },
 
-                /// <field type="Object" locid="WinJS.UI.AppBarCommand.flyout" helpKeyword="WinJS.UI.AppBarCommand.flyout">
-                /// For flyout-type AppBarCommands, this property returns the WinJS.UI.Flyout that this command invokes.
-                /// When setting this property, you may also use the String ID of the flyout to invoke, the DOM object
-                /// for the flyout, or the WinJS.UI.Flayout object itself.
-                /// </field>
-                flyout: {
-                    get: function () {
-                        // Resolve it to the flyout
-                        var flyout = this._flyout;
-                        if (typeof flyout === "string") {
-                            flyout = _Global.document.getElementById(flyout);
-                        }
-                        // If it doesn't have a .element, then we need to getControl on it
-                        if (flyout && !flyout.element) {
-                            flyout = flyout.winControl;
-                        }
-
-                        return flyout;
-                    },
-                    set: function (value) {
-                        // Need to update aria-owns with the new ID.
-                        var id = value;
-                        if (id && typeof id !== "string") {
-                            // Our controls have .element properties
-                            if (id.element) {
-                                id = id.element;
-                            }
-                            // Hope it's a DOM element, get ID from DOM element
-                            if (id) {
-                                if (id.id) {
-                                    id = id.id;
-                                } else {
-                                    // No id, have to fake one
-                                    id.id = _ElementUtilities._uniqueID(id);
-                                    id = id.id;
-                                }
-                            }
-                        }
-                        if (typeof id === "string") {
-                            this._element.setAttribute("aria-owns", id);
-                        }
-
-                        // Remember it
-                        this._flyout = value;
-                    }
-                },
-
                 /// <field type="String" defaultValue="global" oamOptionsDatatype="WinJS.UI.AppBarCommand.section" locid="WinJS.UI.AppBarCommand.section" helpKeyword="WinJS.UI.AppBarCommand.section">
                 /// Gets or sets the section that the AppBarCommand is in. Possible values are "selection" and "global".
                 /// </field>
@@ -40694,32 +35325,15 @@ define('WinJS/Controls/AppBar/_Command',[
                     }
                 },
 
-                /// <field type="String" locid="WinJS.UI.AppBarCommand.tooltip" helpKeyword="WinJS.UI.AppBarCommand.tooltip">Gets or sets the tooltip text of the AppBarCommand.</field>
-                tooltip: {
-                    get: function () {
-                        return this._tooltip;
-                    },
-                    set: function (value) {
-                        this._tooltip = value;
-
-                        // Update already-constructed tooltips. Separators and content commands won't have these:
-                        if (this._tooltipControl) {
-                            this._tooltipControl.innerHTML = this._tooltip;
-                        }
-
-                        // Check if we need to suppress the tooltip
-                        this._testIdenticalTooltip();
-                    }
-                },
-
                 /// <field type="Boolean" locid="WinJS.UI.AppBarCommand.selected" helpKeyword="WinJS.UI.AppBarCommand.selected">Set or get the selected state of a toggle button.</field>
                 selected: {
                     get: function () {
-                        // Ensure it's a boolean because we're using the DOM element to keep in-sync
-                        return this._element.getAttribute("aria-checked") === "true";
+                        //  Keep in-sync with _commandBarIconButton
+                        return this._commandBarIconButton.isChecked;
                     },
                     set: function (value) {
-                        this._element.setAttribute("aria-checked", value);
+                        value = !!value;
+                        this._commandBarIconButton.isChecked = value;
                     }
                 },
 
@@ -40737,11 +35351,11 @@ define('WinJS/Controls/AppBar/_Command',[
                 /// </field>
                 disabled: {
                     get: function () {
-                        // Ensure it's a boolean because we're using the DOM element to keep in-sync
-                        return !!this._element.disabled;
+                        // Use the command bar element to keep in-sync
+                        return !this._commandBarIconButton.enabled;
                     },
                     set: function (value) {
-                        this._element.disabled = value;
+                        this._commandBarIconButton.enabled = !value;
                     }
                 },
 
@@ -40751,62 +35365,29 @@ define('WinJS/Controls/AppBar/_Command',[
                 /// </field>
                 hidden: {
                     get: function () {
-                        // Ensure it's a boolean because we're using the DOM element to keep in-sync
-                        return this._element.style.visibility === "hidden";
+                        return this._hidden;
                     },
                     set: function (value) {
-                        var appbarControl = _Overlay._Overlay._getParentControlUsingClassName(this._element, _Constants.appBarClass);
+                        var appbarControl = _getParentControlUsingClassName(this._element, _Constants.appBarClass);
                         if (appbarControl && !appbarControl.hidden) {
-                            throw new _ErrorFromName("WinJS.UI.AppBarCommand.CannotChangeHiddenProperty", _Resources._formatString(_Overlay._Overlay.commonstrings.cannotChangeHiddenProperty, "AppBar"));
+                            throw new _ErrorFromName("WinJS.UI.AppBarCommand.CannotChangeHiddenProperty", _Resources._formatString(strings.cannotChangeHiddenProperty, "AppBar"));
                         }
+
+                        // Ensure its a boolean.
+                        value = !!value;
 
                         if (value === this.hidden) {
                             // No changes to make.
                             return;
                         }
 
-                        var style = this._element.style;
-
-                        if (value) {
-                            style.visibility = "hidden";
-                            style.display = "none";
-                        } else {
-                            style.visibility = "";
-                            style.display = "inline-block";
-                        }
                         if (appbarControl) {
-                            appbarControl._commandsUpdated();
+                            // AppBar needs to project this change to the commandbar and trigger a check for color updates.
+                            // Use AppBar method to set the value of this._hidden instead.
+                            value ? appbarControl.hideCommands(this) : appbarControl.showCommands(this);
+                        } else {
+                            this._hidden = value;
                         }
-                    }
-                },
-
-                /// <field type="HTMLElement" domElement="true" locid="WinJS.UI.AppBarCommand.firstElementFocus" helpKeyword="WinJS.UI.AppBarCommand.firstElementFocus">
-                /// Gets or sets the HTMLElement within a "content" type AppBarCommand that should receive focus whenever focus moves via Home or the arrow keys,
-                /// from the previous AppBarCommand to the this AppBarCommand. Returns the AppBarCommand object's host element by default.
-                /// </field>
-                firstElementFocus: {
-                    get: function () {
-                        return this._firstElementFocus || this._lastElementFocus || this._element;
-                    },
-                    set: function (element) {
-                        // Arguments of null and this.element should treated the same to ensure that this.element is never a tabstop when either focus property has been set.
-                        this._firstElementFocus = (element === this.element) ? null : element;
-                        this._updateTabStop();
-                    }
-                },
-
-                /// <field type="HTMLElement" domElement="true" locid="WinJS.UI.AppBarCommand.lastElementFocus" helpKeyword="WinJS.UI.AppBarCommand.lastElementFocus">
-                /// Gets or sets the HTMLElement within a "content" type AppBarCommand that should receive focus whenever focus would move, via End or arrow keys,
-                /// from the next AppBarCommand to this AppBarCommand. Returns this AppBarCommand object's host element by default.
-                /// </field>
-                lastElementFocus: {
-                    get: function () {
-                        return this._lastElementFocus || this._firstElementFocus || this._element;
-                    },
-                    set: function (element) {
-                        // Arguments of null and this.element should treated the same to ensure that this.element is never a tabstop when either focus property has been set.
-                        this._lastElementFocus = (element === this.element) ? null : element;
-                        this._updateTabStop();
                     }
                 },
 
@@ -40820,14 +35401,7 @@ define('WinJS/Controls/AppBar/_Command',[
                         return;
                     }
                     this._disposed = true;
-
-                    if (this._tooltipControl) {
-                        this._tooltipControl.dispose();
-                    }
-
-                    if (this._type === _Constants.typeContent) {
-                        _Dispose.disposeSubTree(this.element);
-                    }
+                    this._commandBarIconButton.removeEventListener('iteminvoked', this._forwardCommandBarIconButtonClick, false);
                 },
 
                 addEventListener: function (type, listener, useCapture) {
@@ -40874,40 +35448,6 @@ define('WinJS/Controls/AppBar/_Command',[
                     }
                 },
 
-                // Private
-                _testIdenticalTooltip: function AppBarCommand_testIdenticalToolTip() {
-                    this._hideIfFullSize = (this._label === this._tooltip);
-                },
-
-                _createContent: function AppBarCommand_createContent() {
-                    // Make sure there's an element
-                    if (!this._element) {
-                        this._element = _Global.document.createElement("div");
-                    } else {
-                        // Verify the element was a div
-                        if (this._element.tagName !== "DIV") {
-                            throw new _ErrorFromName("WinJS.UI.AppBarCommand.BadDivElement", strings.badDivElement);
-                        }
-                    }
-
-                    // If a tabIndex isnt set, default to 0;
-                    if (parseInt(this._element.getAttribute("tabIndex"), 10) !== this._element.tabIndex) {
-                        this._element.tabIndex = 0;
-                    }
-                },
-
-                _createSeparator: function AppBarCommand_createSeparator() {
-                    // Make sure there's an element
-                    if (!this._element) {
-                        this._element = _Global.document.createElement("hr");
-                    } else {
-                        // Verify the element was an hr
-                        if (this._element.tagName !== "HR") {
-                            throw new _ErrorFromName("WinJS.UI.AppBarCommand.BadHrElement", strings.badHrElement);
-                        }
-                    }
-                },
-
                 _createButton: function AppBarCommand_createButton() {
                     // Make sure there's an element
                     if (!this._element) {
@@ -40933,32 +35473,16 @@ define('WinJS/Controls/AppBar/_Command',[
                     //// </button>
                     this._element.type = "button";
                     this._iconSpan = _Global.document.createElement("span");
-                    this._iconSpan.setAttribute("aria-hidden", "true");
                     this._iconSpan.className = "win-commandicon win-commandring";
-                    this._iconSpan.tabIndex = -1;
                     this._element.appendChild(this._iconSpan);
                     this._imageSpan = _Global.document.createElement("span");
-                    this._imageSpan.setAttribute("aria-hidden", "true");
                     this._imageSpan.className = "win-commandimage";
-                    this._imageSpan.tabIndex = -1;
                     this._iconSpan.appendChild(this._imageSpan);
                     this._labelSpan = _Global.document.createElement("span");
-                    this._labelSpan.setAttribute("aria-hidden", "true");
                     this._labelSpan.className = "win-label";
-                    this._labelSpan.tabIndex = -1;
                     this._element.appendChild(this._labelSpan);
                     // 'win-global' or 'win-selection' are added later by caller.
                     // Label and icon are added later by caller.
-
-                    // Attach a tooltip - Note: we're going to stomp on it's setControl so we don't have to make another DOM element to hang it off of.
-                    // This private _tooltipControl attribute is used by other pieces, changing the name could break them.
-                    this._tooltipControl = new Tooltip.Tooltip(this._element);
-                    var that = this;
-                    this._tooltipControl.addEventListener("beforeopen", function () {
-                        if (that._hideIfFullSize && !_Overlay._Overlay._getParentControlUsingClassName(that._element.parentElement, _Constants.reducedClass)) {
-                            that._tooltipControl.close();
-                        }
-                    }, false);
                 },
 
                 _setSection: function AppBarCommand_setSection(section) {
@@ -40981,22 +35505,6 @@ define('WinJS/Controls/AppBar/_Command',[
                         _ElementUtilities.addClass(this._element, _Constants.appBarCommandSelectionClass);
                     }
                 },
-
-                _updateTabStop: function AppBarCommand_updateTabStop() {
-                    // Whenever the firstElementFocus or lastElementFocus properties are set for content type AppBarCommands,
-                    // the containing command element is no longer a tabstop.
-
-                    if (this._firstElementFocus || this._lastElementFocus) {
-                        this.element.tabIndex = -1;
-                    } else {
-                        this.element.tabIndex = 0;
-                    }
-                },
-
-                _isFocusable: function AppBarCommand_isFocusable() {
-                    return (!this.hidden && this._type !== _Constants.typeSeparator && !this.element.disabled &&
-                        (this.firstElementFocus.tabIndex >= 0 || this.lastElementFocus.tabIndex >= 0));
-                },
             });
         })
     });
@@ -41004,504 +35512,29 @@ define('WinJS/Controls/AppBar/_Command',[
 });
 
 // Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('WinJS/Controls/AppBar/_Layouts',[
-    'exports',
+// AppBar
+/// <dictionary>appbar,appBars,Flyout,Flyouts,iframe,Statics,unfocus,WinJS</dictionary>
+define('WinJS/Controls/AppBar/_AppBarPhone',[
     '../../Core/_Global',
+    '../../Core/_WinRT',
     '../../Core/_Base',
+    '../../Core/_BaseUtils',
     '../../Core/_ErrorFromName',
+    '../../Core/_Events',
     '../../Core/_Resources',
+    '../../Core/_WriteProfilerMark',
+    '../../ControlProcessor',
     '../../Scheduler',
     '../../Utilities/_Control',
     '../../Utilities/_Dispose',
     '../../Utilities/_ElementUtilities',
-    './_Command',
-    './_Constants'
-], function appBarLayoutsInit(exports, _Global, _Base, _ErrorFromName, _Resources, Scheduler, _Control, _Dispose, _ElementUtilities, _Command, _Constants) {
+    './_CommandPhone',
+    './_Constants',
+    './_Icon'
+    ], function appBarInit(_Global, _WinRT, _Base, _BaseUtils, _ErrorFromName, _Events, _Resources, _WriteProfilerMark, ControlProcessor, Scheduler, _Control, _Dispose, _ElementUtilities, _CommandPhone, _Constants, _Icon) {
     "use strict";
 
-    // AppBar will use this when AppBar.layout property is set to "custom"
-    _Base.Namespace._moduleDefine(exports, "WinJS.UI", {
-        _AppBarBaseLayout: _Base.Namespace._lazy(function () {
-            var baseType = _Constants.appBarLayoutCustom;
-
-            var strings = {
-                get nullCommand() { return "Invalid argument: command must not be null"; }
-            };
-
-            var _AppBarBaseLayout = _Base.Class.define(function _AppBarBaseLayout_ctor(appBarEl, options) {
-                this._disposed = false;
-
-                options = options || {};
-                _Control.setOptions(this, options);
-
-                if (appBarEl) {
-                    this.connect(appBarEl);
-                }
-            }, {
-                // Members
-                className: {
-                    get: function _AppBarBaseLayout_get_className() {
-                        return this._className;
-                    },
-                },
-                type: {
-                    get: function _AppBarBaseLayout_get_className() {
-                        return this._type || baseType;
-                    },
-                },
-                commandsInOrder: {
-                    get: function _AppBarBaseLayout_get_commandsInOrder() {
-                        // Gets a DOM ordered Array of the AppBarCommand elements in the AppBar.
-                        var commands = this.appBarEl.querySelectorAll("." + _Constants.appBarCommandClass);
-
-                        // Needs to be an array, in case these are getting passed to a new layout.
-                        // The new layout will invoke the AppBar._layoutCommands, and it expects an
-                        // Array.
-                        return Array.prototype.slice.call(commands);
-                    }
-                },
-                connect: function _AppBarBaseLayout_connect(appBarEl) {
-                    if (this.className) {
-                        _ElementUtilities.addClass(appBarEl, this.className);
-                    }
-                    this.appBarEl = appBarEl;
-                },
-                disconnect: function _AppBarBaseLayout_disconnect() {
-                    if (this.className) {
-                        _ElementUtilities.removeClass(this.appBarEl, this.className);
-                    }
-                    this.appBarEl = null;
-                    this.dispose();
-                },
-                layout: function _AppBarBaseLayout_layout(commands) {
-                    // Append commands to the DOM.
-                    var len = commands.length;
-                    for (var i = 0; i < len; i++) {
-                        var command = this.sanitizeCommand(commands[i]);
-                        this.appBarEl.appendChild(command._element);
-                    }
-                },
-                sanitizeCommand: function _AppBarBaseLayout_sanitizeCommand(command) {
-                    if (!command) {
-                        throw new _ErrorFromName("WinJS.UI.AppBar.NullCommand", strings.nullCommand);
-                    }
-                    // See if it's a command already
-                    command = command.winControl || command;
-                    if (!command._element) {
-                        // Not a command, so assume it is options for the command's constructor.
-                        command = new _Command.AppBarCommand(null, command);
-                    }
-                    // If we were attached somewhere else, detach us
-                    if (command._element.parentElement) {
-                        command._element.parentElement.removeChild(command._element);
-                    }
-
-                    return command;
-                },
-                dispose: function _AppBarBaseLayout_dispose() {
-                    this._disposed = true;
-                },
-                disposeChildren: function _AppBarBaseLayout_disposeChildren() {
-                    var appBarFirstDiv = this.appBarEl.querySelectorAll("." + _Constants.firstDivClass);
-                    appBarFirstDiv = appBarFirstDiv.length >= 1 ? appBarFirstDiv[0] : null;
-                    var appBarFinalDiv = this.appBarEl.querySelectorAll("." + _Constants.finalDivClass);
-                    appBarFinalDiv = appBarFinalDiv.length >= 1 ? appBarFinalDiv[0] : null;
-
-                    var children = this.appBarEl.children;
-                    var length = children.length;
-                    for (var i = 0; i < length; i++) {
-                        var element = children[i];
-                        if (element === appBarFirstDiv || element === appBarFinalDiv) {
-                            continue;
-                        } else {
-                            _Dispose.disposeSubTree(element);
-                        }
-                    }
-                },
-                handleKeyDown: function _AppBarBaseLayout_handleKeyDown() {
-                    // NOP
-                },
-                commandsUpdated: function _AppBarBaseLayout_commandsUpdated() {
-                    // NOP
-                },
-                beginAnimateCommands: function _AppBarBaseLayout_beginAnimateCommands() {
-                    // The parameters are 3 mutually exclusive arrays of win-command elements contained in this Overlay.
-                    // 1) showCommands[]: All of the HIDDEN win-command elements that ARE scheduled to show.
-                    // 2) hideCommands[]: All of the VISIBLE win-command elements that ARE scheduled to hide.
-                    // 3) otherVisibleCommands[]: All VISIBLE win-command elements that ARE NOT scheduled to hide.
-
-                    // NOP
-                },
-                endAnimateCommands: function _AppBarBaseLayout_endAnimateCommands() {
-                    // NOP
-                },
-                scale: function _AppBarBaseLayout_scale() {
-                    // NOP
-                },
-                resize: function _AppBarBaseLayout_resize() {
-                    // NOP
-                },
-            });
-            return _AppBarBaseLayout;
-        }),
-    });
-
-    // AppBar will use this when AppBar.layout property is set to "commands"
-    _Base.Namespace._moduleDefine(exports, "WinJS.UI", {
-        _AppBarCommandsLayout: _Base.Namespace._lazy(function () {
-            var layoutClassName = _Constants.commandLayoutClass;
-            var layoutType = _Constants.appBarLayoutCommands;
-
-            var _AppBarCommandsLayout = _Base.Class.derive(exports._AppBarBaseLayout, function _AppBarCommandsLayout_ctor(appBarEl) {
-                exports._AppBarBaseLayout.call(this, appBarEl, { _className: layoutClassName, _type: layoutType });
-                this._commandLayoutsInit(appBarEl);
-            }, {
-                _getWidthOfFullSizeCommands: function _AppBarCommandsLayout_getWidthOfFullSizeCommands(commands) {
-                    // Commands layout puts primary commands and secondary commands into the primary row.
-                    // Return the total width of all visible primary and secondary commands as if they were full-size.
-
-                    // Perform any pending measurements on "content" type AppBarCommands.
-                    if (this._needToMeasureNewCommands) {
-                        this._measureContentCommands();
-                    }
-                    var accumulatedWidth = 0;
-                    var separatorsCount = 0;
-                    var buttonsCount = 0;
-
-                    if (!commands) {
-                        // Return the cached full size width of the last known visible commands in the AppBar.
-                        return this._fullSizeWidthOfLastKnownVisibleCommands;
-                    } else {
-                        // Return the width of the specified commands.
-                        var command;
-                        for (var i = 0, len = commands.length; i < len; i++) {
-                            command = commands[i].winControl || commands[i];
-                            if (command._type === _Constants.typeSeparator) {
-                                separatorsCount++;
-                            } else if (command._type !== _Constants.typeContent) {
-                                // button, toggle, and flyout types all have the same width.
-                                buttonsCount++;
-                            } else {
-                                accumulatedWidth += command._fullSizeWidth;
-                            }
-                        }
-                    }
-                    return accumulatedWidth += (separatorsCount * _Constants.separatorWidth) + (buttonsCount * _Constants.buttonWidth);
-                },
-                _getFocusableCommandsInLogicalOrder: function _AppBarCommandsLayout_getCommandsInLogicalOrder() {
-                    // Function returns an array of all the contained AppBarCommands which are reachable by left/right arrows.
-
-                    var selectionCommands = this._secondaryCommands.children,
-                        globalCommands = this._primaryCommands.children,
-                        focusedIndex = -1;
-
-                    var getFocusableCommandsHelper = function (commandsInReach) {
-                        var focusableCommands = [];
-                        for (var i = 0, len = commandsInReach.length; i < len; i++) {
-                            var element = commandsInReach[i];
-                            if (_ElementUtilities.hasClass(element, _Constants.appBarCommandClass) && element.winControl) {
-                                var containsFocus = element.contains(_Global.document.activeElement);
-                                // With the inclusion of content type commands, it may be possible to tab to elements in AppBarCommands that are not reachable by arrow keys.
-                                // Regardless, when an AppBarCommand contains the element with focus, we just include the whole command so that we can determine which
-                                // commands are adjacent to it when looking for the next focus destination.
-                                if (element.winControl._isFocusable() || containsFocus) {
-                                    focusableCommands.push(element);
-                                    if (containsFocus) {
-                                        focusedIndex = focusableCommands.length - 1;
-                                    }
-                                }
-                            }
-                        }
-                        return focusableCommands;
-                    };
-
-                    // Determines which set of commands the user could potentially reach through Home, End, and arrow keys.
-                    // All commands in the commands layout AppBar, from left to right are in reach. Selection then Global.
-                    var commandsInReach = Array.prototype.slice.call(selectionCommands).concat(Array.prototype.slice.call(globalCommands));
-
-                    var focusableCommands = getFocusableCommandsHelper(commandsInReach);
-                    focusableCommands.focusedIndex = focusedIndex;
-                    return focusableCommands;
-                },
-            });
-
-            // Override some our base implementations and expand our API surface with the commandLayoutsMixin object.
-            _Base.Class.mix(_AppBarCommandsLayout, _commandLayoutsMixin);
-            return _AppBarCommandsLayout;
-        }),
-    });
-
-    // These are functions and properties that any new command layout would want to share with our existing "commands" layout.
-    var _commandLayoutsMixin = {
-        layout: function _commandLayoutsMixin_layout(commands) {
-            // Insert commands and other layout specific DOM into the AppBar element.
-
-            // Empty our tree.
-            _ElementUtilities.empty(this._primaryCommands);
-            _ElementUtilities.empty(this._secondaryCommands);
-
-            // Keep track of the order we receive the commands in.
-            this._commandsInOriginalOrder = [];
-
-            // Layout commands
-            for (var i = 0, len = commands.length; i < len; i++) {
-                var command = this.sanitizeCommand(commands[i]);
-
-                this._commandsInOriginalOrder.push(command.element);
-
-                if ("global" === command.section) {
-                    this._primaryCommands.appendChild(command._element);
-                } else {
-                    this._secondaryCommands.appendChild(command._element);
-                }
-            }
-
-            // Append layout containers to AppBar element.
-            // Secondary Commands should come first in Tab Order.
-            this.appBarEl.appendChild(this._secondaryCommands);
-            this.appBarEl.appendChild(this._primaryCommands);
-
-
-            // Need to measure all content commands after they have been added to the AppBar to make sure we allow
-            // user defined CSS rules based on the ancestor of the content command to take affect.
-            this._needToMeasureNewCommands = true;
-
-            // In case this is called from the constructor before the AppBar element has been appended to the DOM,
-            // we schedule the initial scaling of commands, with the expectation that the element will be added
-            // synchronously, in the same block of code that called the constructor.
-            Scheduler.schedule(function () {
-                if (this._needToMeasureNewCommands && !this._disposed) {
-                    this.scale();
-                }
-            }.bind(this), Scheduler.Priority.idle, this, "WinJS._commandLayoutsMixin._scaleNewCommands");
-
-        },
-        commandsInOrder: {
-            get: function () {
-                return this._commandsInOriginalOrder.filter(function (command) {
-                    // Make sure the element is still in the AppBar.
-                    return this.appBarEl.contains(command);
-                }, this);
-            }
-        },
-        disposeChildren: function _commandLayoutsMixin_disposeChildren() {
-            _Dispose.disposeSubTree(this._primaryCommands);
-            _Dispose.disposeSubTree(this._secondaryCommands);
-        },
-        handleKeyDown: function _commandLayoutsMixin_handleKeyDown(event) {
-            var Key = _ElementUtilities.Key;
-
-            if (_ElementUtilities._matchesSelector(event.target, ".win-interactive, .win-interactive *")) {
-                return; // Ignore left, right, home & end keys if focused element has win-interactive class.
-            }
-            var rtl = _Global.getComputedStyle(this.appBarEl).direction === "rtl";
-            var leftKey = rtl ? Key.rightArrow : Key.leftArrow;
-            var rightKey = rtl ? Key.leftArrow : Key.rightArrow;
-
-            if (event.keyCode === leftKey || event.keyCode === rightKey || event.keyCode === Key.home || event.keyCode === Key.end) {
-
-                var globalCommandHasFocus = this._primaryCommands.contains(_Global.document.activeElement);
-                var focusableCommands = this._getFocusableCommandsInLogicalOrder(globalCommandHasFocus);
-                var targetCommand;
-
-                if (focusableCommands.length) {
-                    switch (event.keyCode) {
-                        case leftKey:
-                            // Arrowing past the last command wraps back around to the first command.
-                            var index = Math.max(-1, focusableCommands.focusedIndex - 1) + focusableCommands.length;
-                            targetCommand = focusableCommands[index % focusableCommands.length].winControl.lastElementFocus;
-                            break;
-
-                        case rightKey:
-                            // Arrowing previous to the first command wraps back around to the last command.
-                            var index = focusableCommands.focusedIndex + 1 + focusableCommands.length;
-                            targetCommand = focusableCommands[index % focusableCommands.length].winControl.firstElementFocus;
-                            break;
-
-                        case Key.home:
-                            var index = 0;
-                            targetCommand = focusableCommands[index].winControl.firstElementFocus;
-                            break;
-
-                        case Key.end:
-                            var index = focusableCommands.length - 1;
-                            targetCommand = focusableCommands[index].winControl.lastElementFocus;
-                            break;
-                    }
-                }
-
-                if (targetCommand) {
-                    targetCommand.focus();
-                    // Prevent default so that the browser doesn't also evaluate the keydown event on the newly focused element.
-                    event.preventDefault();
-                }
-            }
-        },
-        commandsUpdated: function _commandLayoutsMixin_commandsUpdated(newSetOfVisibleCommands) {
-            // Whenever new commands are set or existing commands are hiding/showing in the AppBar, this
-            // function is called to update the cached width measurement of all visible AppBarCommands.
-
-            var visibleCommands = (newSetOfVisibleCommands) ? newSetOfVisibleCommands : this.commandsInOrder.filter(function (command) {
-                return !command.winControl.hidden;
-            });
-            this._fullSizeWidthOfLastKnownVisibleCommands = this._getWidthOfFullSizeCommands(visibleCommands);
-        },
-        beginAnimateCommands: function _commandLayoutsMixin_beginAnimateCommands(showCommands, hideCommands, otherVisibleCommands) {
-            // The parameters are 3 mutually exclusive arrays of win-command elements contained in this Overlay.
-            // 1) showCommands[]: All of the HIDDEN win-command elements that ARE scheduled to show.
-            // 2) hideCommands[]: All of the VISIBLE win-command elements that ARE scheduled to hide.
-            // 3) otherVisibleCommands[]: All VISIBLE win-command elements that ARE NOT scheduled to hide.
-
-            this._scaleAfterAnimations = false;
-
-            // Determine if the overall width of visible commands in the primary row will be increasing OR decreasing.
-            var changeInWidth = this._getWidthOfFullSizeCommands(showCommands) - this._getWidthOfFullSizeCommands(hideCommands);
-            if (changeInWidth > 0) {
-                // Width of contents is going to increase, update our command counts now, to what they will be after we complete the animations.
-                var visibleCommandsAfterAnimations = otherVisibleCommands.concat(showCommands);
-                this.commandsUpdated(visibleCommandsAfterAnimations);
-                // Make sure we will have enough room to fit everything on a single row.
-                this.scale();
-            } else if (changeInWidth < 0) {
-                // Width of contents is going to decrease. Once animations are complete, check if
-                // there is enough available space to make the remaining commands full size.
-                this._scaleAfterAnimations = true;
-            }
-        },
-        endAnimateCommands: function _commandLayoutsMixin_endAnimateCommands() {
-            if (this._scaleAfterAnimations) {
-                this.commandsUpdated();
-                this.scale();
-            }
-        },
-        scale: function _commandLayoutsMixin_scale() {
-            // If the total width of all AppBarCommands in the primary row is greater than the
-            // width of the AppBar, add the win-reduced class to the AppBar element and all
-            // AppBarCommands will reduce in size.
-
-            // Measure the width all visible commands in  AppBar's primary row, the AppBar's offsetWidth and the AppBar horizontal padding:
-            var fullSizeWidthOfVisibleContent = this._getWidthOfFullSizeCommands();
-            if (this._appBarTotalKnownWidth !== +this._appBarTotalKnownWidth) {
-                this._appBarTotalKnownWidth = this._scaleHelper();
-            }
-
-            if (fullSizeWidthOfVisibleContent <= this._appBarTotalKnownWidth) {
-                // Full size commands
-                _ElementUtilities.removeClass(this.appBarEl, _Constants.reducedClass);
-            } else {
-                // Reduced size commands
-                _ElementUtilities.addClass(this.appBarEl, _Constants.reducedClass);
-            }
-        },
-        resize: function _commandLayoutsMixin_resize() {
-            if (!this._disposed) {
-                // Check for horizontal window resizes.
-                this._appBarTotalKnownWidth = null;
-                if (!this.appBarEl.winControl.hidden) {
-                    this.scale();
-                }
-            }
-        },
-        disconnect: function _commandLayoutsMixin_disconnect() {
-            _ElementUtilities.removeClass(this.appBarEl, _Constants.reducedClass);
-            exports._AppBarBaseLayout.prototype.disconnect.call(this);
-        },
-        _commandLayoutsInit: function _commandLayoutsMixin_commandLayoutsInit() {
-            // Create layout infrastructure
-            this._primaryCommands = _Global.document.createElement("DIV");
-            this._secondaryCommands = _Global.document.createElement("DIV");
-            _ElementUtilities.addClass(this._primaryCommands, _Constants.primaryCommandsClass);
-            _ElementUtilities.addClass(this._secondaryCommands, _Constants.secondaryCommandsClass);
-        },
-        _scaleHelper: function _commandLayoutsMixin_scaleHelper() {
-            // This exists as a single line function so that unit tests can
-            // overwrite it since they can't resize the WWA window.
-
-            // It is expected that AppBar is an immediate child of the <body> and will have 100% width.
-            // We measure the clientWidth of the documentElement so that we can scale the AppBar lazily
-            // even while its element is display: 'none'
-            var extraPadding = this.appBarEl.winControl.closedDisplayMode === "minimal" ? _Constants.appBarInvokeButtonWidth : 0;
-            return _Global.document.documentElement.clientWidth - extraPadding;
-        },
-        _measureContentCommands: function _commandLayoutsMixin_measureContentCommands() {
-            // AppBar measures the width of content commands when they are first added
-            // and then caches that value to avoid additional layouts in the future.
-
-            // Can't measure unless We're in the document body
-            if (_Global.document.body.contains(this.appBarEl)) {
-                this._needToMeasureNewCommands = false;
-
-                // Remove the reducedClass from AppBar to ensure fullsize measurements
-                var hadReducedClass = _ElementUtilities.hasClass(this.appBarEl, _Constants.reducedClass);
-                _ElementUtilities.removeClass(this.appBarEl, _Constants.reducedClass);
-
-                var hadHiddenClass = _ElementUtilities.hasClass(this.appBarEl, _Constants.hiddenClass);
-                _ElementUtilities.removeClass(this.appBarEl, _Constants.hiddenClass);
-
-                // Make sure AppBar and children have width dimensions.
-                var prevAppBarDisplay = this.appBarEl.style.display;
-                this.appBarEl.style.display = "";
-                var prevCommandDisplay;
-
-                var contentElements = this.appBarEl.querySelectorAll("div." + _Constants.appBarCommandClass);
-                var element;
-                for (var i = 0, len = contentElements.length; i < len; i++) {
-                    element = contentElements[i];
-                    if (element.winControl && element.winControl._type === _Constants.typeContent) {
-                        // Make sure command has width dimensions before we measure.
-                        prevCommandDisplay = element.style.display;
-                        element.style.display = "";
-                        element.winControl._fullSizeWidth = _ElementUtilities.getTotalWidth(element) || 0;
-                        element.style.display = prevCommandDisplay;
-                    }
-                }
-
-                // Restore state to AppBar.
-                this.appBarEl.style.display = prevAppBarDisplay;
-                if (hadReducedClass) {
-                    _ElementUtilities.addClass(this.appBarEl, _Constants.reducedClass);
-                }
-                if (hadHiddenClass) {
-                    _ElementUtilities.addClass(this.appBarEl, _Constants.hiddenClass);
-                }
-
-                this.commandsUpdated();
-            }
-        },
-    };
-});
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-// AppBar
-/// <dictionary>appbar,appBars,Flyout,Flyouts,iframe,Statics,unfocus,WinJS</dictionary>
-define('WinJS/Controls/AppBar',[
-    'exports',
-    '../Core/_Global',
-    '../Core/_WinRT',
-    '../Core/_Base',
-    '../Core/_BaseUtils',
-    '../Core/_ErrorFromName',
-    '../Core/_Resources',
-    '../Core/_WriteProfilerMark',
-    '../Animations',
-    '../Promise',
-    '../Scheduler',
-    '../Utilities/_Control',
-    '../Utilities/_Dispose',
-    '../Utilities/_ElementUtilities',
-    '../Utilities/_Hoverable',
-    '../Utilities/_KeyboardBehavior',
-    './AppBar/_Constants',
-    './AppBar/_Layouts',
-    './AppBar/_Command',
-    './AppBar/_Icon',
-    './Flyout/_Overlay',
-    'require-style!less/desktop/controls',
-    'require-style!less/phone/controls'
-], function appBarInit(exports, _Global, _WinRT, _Base, _BaseUtils, _ErrorFromName, _Resources, _WriteProfilerMark, Animations, Promise, Scheduler, _Control, _Dispose, _ElementUtilities, _Hoverable, _KeyboardBehavior, _Constants, _Layouts, _Command, _Icon, _Overlay) {
-    "use strict";
-
-    _Base.Namespace._moduleDefine(exports, "WinJS.UI", {
+    _Base.Namespace.define("WinJS.UI", {
         /// <field>
         /// <summary locid="WinJS.UI.AppBar">
         /// Represents an application toolbar for display commands.
@@ -41520,277 +35553,157 @@ define('WinJS/Controls/AppBar',[
         /// <part name="appBarCustom" class="win-appbar" locid="WinJS.UI.AppBar_part:appBarCustom">Style for a custom layout AppBar.</part>
         /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
         /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
+        /// <resource type="css" src="//WinJS.3.0/ui-dark.css" shared="true" />
         AppBar: _Base.Namespace._lazy(function () {
-            var Key = _ElementUtilities.Key;
 
-            // Enum of known constant pixel values for display modes.
-            var knownVisibleHeights = {
-                disabled: 0,
-                none: 0,
-                hidden: 0,
-                minimal: 25,
-            };
+            var appBarCounter = 0;
+            var currentAppBar = null;
 
-            // Maps each notion of a display modes to the corresponding visible position
-            var displayModeVisiblePositions = {
-                disabled: "hidden",
-                none: "hidden",
-                hidden: "hidden",
-                minimal: "minimal",
-                shown: "shown",
-            };
+            var commandBar; // One static commandBar to be shared by all WinJS AppBar instances.
+            var core = _WinRT.Windows.UI.WebUI.Core;
 
-            // Enum of closedDisplayMode constants
-            var closedDisplayModes = {
-                none: "none",
-                minimal: "minimal",
-            };
+            var createEvent = _Events._createEventProperty;
 
-            // Constants shown/hidden states
-            var appbarShownState = "shown",
-                appbarHiddenState = "hidden";
+            // Event Names
+            var BEFORESHOW = "beforeshow";
+            var AFTERSHOW = "aftershow";
+            var BEFOREHIDE = "beforehide";
+            var AFTERHIDE = "afterhide";
 
-            // Hook into event
-            var appBarCommandEvent = false;
-            var edgyHappening = null;
-
-            // Handler for the edgy starting/completed/cancelled events
-            function _completedEdgy(e) {
-                // If we had a right click on a flyout, ignore it.
-                if (_Overlay._Overlay._rightMouseMightEdgy &&
-                    e.kind === _WinRT.Windows.UI.Input.EdgeGestureKind.mouse) {
-                    return;
-                }
-                if (edgyHappening) {
-                    // Edgy was happening, just skip it
-                    edgyHappening = null;
-                } else {
-                    // Edgy wasn't happening, so toggle
-                    var keyboardInvoked = e.kind === _WinRT.Windows.UI.Input.EdgeGestureKind.keyboard;
-                    AppBar._toggleAllAppBarsState(keyboardInvoked);
-                }
-            }
-
-            function _startingEdgy() {
-                if (!edgyHappening) {
-                    // Edgy wasn't happening, so toggle & start it
-                    edgyHappening = AppBar._toggleAllAppBarsState(false);
-                }
-            }
-
-            function _canceledEdgy() {
-                // Shouldn't get here unless edgy was happening.
-                // Undo whatever we were doing.
-                var bars = _getDynamicBarsForEdgy();
-                if (edgyHappening === "showing") {
-                    _Overlay._Overlay._hideAllBars(bars, false);
-                } else if (edgyHappening === "hiding") {
-                    _Overlay._Overlay._showAllBars(bars, false);
-                }
-                edgyHappening = null;
-            }
-
-            function _allManipulationChanged(event) {
-                var elements = _Global.document.querySelectorAll("." + _Constants.appBarClass);
-                if (elements) {
-                    var len = elements.length;
-                    for (var i = 0; i < len; i++) {
-                        var element = elements[i];
-                        var appbar = element.winControl;
-                        if (appbar && !element.disabled) {
-                            appbar._manipulationChanged(event);
-                        }
-                    }
-                }
-            }
-
-            // Get all the non-sticky bars and return them.
-            // Returns array of AppBar objects.
-            // The array also has _hidden and/or _shown set if ANY are hidden or shown.
-            function _getDynamicBarsForEdgy() {
-                var elements = _Global.document.querySelectorAll("." + _Constants.appBarClass);
-                var len = elements.length;
-                var AppBars = [];
-                AppBars._shown = false;
-                AppBars._hidden = false;
-                for (var i = 0; i < len; i++) {
-                    var element = elements[i];
-                    if (element.disabled) {
-                        // Skip disabled AppBars
-                        continue;
-                    }
-                    var AppBar = element.winControl;
-                    if (AppBar) {
-                        AppBars.push(AppBar);
-                        if (_ElementUtilities.hasClass(AppBar._element, _Constants.hiddenClass) || _ElementUtilities.hasClass(AppBar._element, _Constants.hidingClass)) {
-                            AppBars._hidden = true;
-                        } else {
-                            AppBars._shown = true;
-                        }
-                    }
-                }
-
-                return AppBars;
-            }
-
-            // Sets focus to the last AppBar in the provided appBars array with given placement.
-            // Returns true if focus was set.  False otherwise.
-            function _setFocusToPreviousAppBarHelper(startIndex, appBarPlacement, appBars) {
-                var appBar;
-                for (var i = startIndex; i >= 0; i--) {
-                    appBar = appBars[i].winControl;
-                    if (appBar
-                     && appBar.placement === appBarPlacement
-                     && !appBar.hidden
-                     && appBar._focusOnLastFocusableElement
-                     && appBar._focusOnLastFocusableElement()) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            // Sets focus to the last tab stop of the previous AppBar
-            // AppBar tabbing order:
-            //    1) Bottom AppBars
-            //    2) Top AppBars
-            // DOM order is respected, because an AppBar should not have a defined tabIndex
-            function _setFocusToPreviousAppBar() {
-                /*jshint validthis: true */
-                var appBars = _Global.document.querySelectorAll("." + _Constants.appBarClass);
-                if (!appBars.length) {
-                    return;
-                }
-
-                var thisAppBarIndex = 0;
-                for (var i = 0; i < appBars.length; i++) {
-                    if (appBars[i] === this.parentElement) {
-                        thisAppBarIndex = i;
-                        break;
-                    }
-                }
-
-                var appBarControl = this.parentElement.winControl;
-                if (appBarControl.placement === _Constants.appBarPlacementBottom) {
-                    // Bottom appBar: Focus order: (1)previous bottom appBars (2)top appBars (3)bottom appBars
-                    if (thisAppBarIndex && _setFocusToPreviousAppBarHelper(thisAppBarIndex - 1, _Constants.appBarPlacementBottom, appBars)) { return; }
-                    if (_setFocusToPreviousAppBarHelper(appBars.length - 1, _Constants.appBarPlacementTop, appBars)) { return; }
-                    if (_setFocusToPreviousAppBarHelper(appBars.length - 1, _Constants.appBarPlacementBottom, appBars)) { return; }
-                } else if (appBarControl.placement === _Constants.appBarPlacementTop) {
-                    // Top appBar: Focus order: (1)previous top appBars (2)bottom appBars (3)top appBars
-                    if (thisAppBarIndex && _setFocusToPreviousAppBarHelper(thisAppBarIndex - 1, _Constants.appBarPlacementTop, appBars)) { return; }
-                    if (_setFocusToPreviousAppBarHelper(appBars.length - 1, _Constants.appBarPlacementBottom, appBars)) { return; }
-                    if (_setFocusToPreviousAppBarHelper(appBars.length - 1, _Constants.appBarPlacementTop, appBars)) { return; }
-                }
-            }
-
-            // Sets focus to the first AppBar in the provided appBars array with given placement.
-            // Returns true if focus was set.  False otherwise.
-            function _setFocusToNextAppBarHelper(startIndex, appBarPlacement, appBars) {
-                var appBar;
-                for (var i = startIndex; i < appBars.length; i++) {
-                    appBar = appBars[i].winControl;
-                    if (appBar
-                     && appBar.placement === appBarPlacement
-                     && !appBar.hidden
-                     && appBar._focusOnFirstFocusableElement
-                     && appBar._focusOnFirstFocusableElement()) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            // Sets focus to the first tab stop of the next AppBar
-            // AppBar tabbing order:
-            //    1) Bottom AppBars
-            //    2) Top AppBars
-            // DOM order is respected, because an AppBar should not have a defined tabIndex
-            function _setFocusToNextAppBar() {
-                /*jshint validthis: true */
-                var appBars = _Global.document.querySelectorAll("." + _Constants.appBarClass);
-
-                var thisAppBarIndex = 0;
-                for (var i = 0; i < appBars.length; i++) {
-                    if (appBars[i] === this.parentElement) {
-                        thisAppBarIndex = i;
-                        break;
-                    }
-                }
-
-                if (this.parentElement.winControl.placement === _Constants.appBarPlacementBottom) {
-                    // Bottom appBar: Focus order: (1)next bottom appBars (2)top appBars (3)bottom appBars
-                    if (_setFocusToNextAppBarHelper(thisAppBarIndex + 1, _Constants.appBarPlacementBottom, appBars)) { return; }
-                    if (_setFocusToNextAppBarHelper(0, _Constants.appBarPlacementTop, appBars)) { return; }
-                    if (_setFocusToNextAppBarHelper(0, _Constants.appBarPlacementBottom, appBars)) { return; }
-                } else if (this.parentElement.winControl.placement === _Constants.appBarPlacementTop) {
-                    // Top appBar: Focus order: (1)next top appBars (2)bottom appBars (3)top appBars
-                    if (_setFocusToNextAppBarHelper(thisAppBarIndex + 1, _Constants.appBarPlacementTop, appBars)) { return; }
-                    if (_setFocusToNextAppBarHelper(0, _Constants.appBarPlacementBottom, appBars)) { return; }
-                    if (_setFocusToNextAppBarHelper(0, _Constants.appBarPlacementTop, appBars)) { return; }
-                }
-            }
-
-            // Updates the firstDiv & finalDiv of all shown AppBars
-            function _updateAllAppBarsFirstAndFinalDiv() {
-                var appBars = _Global.document.querySelectorAll("." + _Constants.appBarClass);
-                var appBar;
-                for (var i = 0; i < appBars.length; i++) {
-                    appBar = appBars[i].winControl;
-                    if (appBar
-                     && !appBar.hidden
-                     && appBar._updateFirstAndFinalDiv) {
-                        appBar._updateFirstAndFinalDiv();
-                    }
-                }
-            }
-
-            // Returns true if a visible non-sticky (light dismiss) AppBar is found in the document
-            function _isThereVisibleNonStickyBar() {
-                var appBars = _Global.document.querySelectorAll("." + _Constants.appBarClass);
-                for (var i = 0; i < appBars.length; i++) {
-                    var appBarControl = appBars[i].winControl;
-                    if (appBarControl && !appBarControl.sticky &&
-                        (!appBarControl.hidden || appBarControl._element.winAnimating === displayModeVisiblePositions.shown)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            // If the previous focus was not a AppBar or CED, store it in the cache
-            // (_isAppBarOrChild tests CED for us).
-            function _checkStorePreviousFocus(focusEvent) {
-                if (focusEvent.relatedTarget
-                 && focusEvent.relatedTarget.focus
-             && !_Overlay._Overlay._isAppBarOrChild(focusEvent.relatedTarget)) {
-                    _storePreviousFocus(focusEvent.relatedTarget);
-                }
-            }
-
-            // Cache the previous focus information
-            function _storePreviousFocus(element) {
-                if (element) {
-                    _Overlay._Overlay._ElementWithFocusPreviousToAppBar = element;
-                }
-            }
-
-            // Try to return focus to what had focus before.
-            // If successfully return focus to a textbox, restore the selection too.
-            function _restorePreviousFocus() {
-                _Overlay._Overlay._trySetActive(_Overlay._Overlay._ElementWithFocusPreviousToAppBar);
-            }
+            // Hidden Display Modes
+            var closedDisplayCompact = "compact";
+            var closedDisplayMinimal = "minimal";
 
             var strings = {
-                get ariaLabel() { return _Resources._getWinJSString("ui/appBarAriaLabel").value; },
                 get requiresCommands() { return "Invalid argument: commands must not be empty"; },
+                get nullCommand() { return "Invalid argument: command must not be null"; },
                 get cannotChangePlacementWhenVisible() { return "Invalid argument: The placement property cannot be set when the AppBar is visible, call hide() first"; },
                 get badLayout() { return "Invalid argument: The layout property must be 'custom' or 'commands'"; },
-                get cannotChangeLayoutWhenVisible() { return "Invalid argument: The layout property cannot be set when the AppBar is visible, call hide() first"; }
+                get cannotChangeLayoutWhenVisible() { return "Invalid argument: The layout property cannot be set when the AppBar is visible, call hide() first"; },
+                get cannotChangeCommandsWhenVisible() { return "Invalid argument: You must call hide() before changing {0} commands"; }, // duplicate string getter from Overlay.
+                get mustContainCommands() { return "Invalid HTML: AppBars/Menus must contain only AppBarCommands/MenuCommands"; }, // duplicate string getter from Overlay.
+                get duplicateConstruction() { return "Invalid argument: Controls may only be instantiated one time for each DOM element"; }, // duplicate string getter from Overlay.
             };
 
-            var AppBar = _Base.Class.derive(_Overlay._Overlay, function AppBar_ctor(element, options) {
+            // Send one of our events, duplicate of private _Overlay member function
+            function _sendEvent(eventName, detail) {
+                /*jshint validthis: true */
+                if (this._disposed) {
+                    return;
+                }
+                var event = _Global.document.createEvent("CustomEvent");
+                event.initEvent(eventName, true, true, (detail || {}));
+                this._element.dispatchEvent(event);
+            }
+
+            // Show commands, duplicate of private _Overlay member function
+            function _showCommands(commands) {
+                /*jshint validthis: true */
+                var showHide = _resolveCommands.call(this, commands);
+                this._showAndHideCommands(showHide.commands, []);
+            }
+
+            // Hide commands, duplicate of private _Overlay member function
+            function _hideCommands(commands) {
+                /*jshint validthis: true */
+                var showHide = _resolveCommands.call(this, commands);
+                this._showAndHideCommands([], showHide.commands);
+            }
+
+            // Hide commands, duplicate of private _Overlay member function
+            function _showOnlyCommands(commands) {
+                /*jshint validthis: true */
+                var showHide = _resolveCommands.call(this, commands);
+                this._showAndHideCommands(showHide.commands, showHide.others);
+            }
+
+            // Resolves our commands, duplicate of private _Overlay member function
+            function _resolveCommands(commands) {
+                /*jshint validthis: true */
+                // First make sure they're all DOM elements.
+                commands = _resolveElements(commands);
+
+                // Now make sure they're all in this container
+                var result = {};
+                result.commands = [];
+                result.others = [];
+                var allCommands = this.element.querySelectorAll(".win-command");
+                var countAll, countIn;
+                for (countAll = 0; countAll < allCommands.length; countAll++) {
+                    var found = false;
+                    for (countIn = 0; countIn < commands.length; countIn++) {
+                        if (commands[countIn] === allCommands[countAll]) {
+                            result.commands.push(allCommands[countAll]);
+                            commands.splice(countIn, 1);
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        result.others.push(allCommands[countAll]);
+                    }
+                }
+                return result;
+            }
+
+            // Helper to get DOM elements from input single object or array or IDs/toolkit/dom elements. Duplicate of private _Overlay helper.
+            function _resolveElements(elements) {
+                // No input is just an empty array
+                if (!elements) {
+                    return [];
+                }
+
+                // Make sure it's in array form.
+                if (typeof elements === "string" || !elements || !elements.length) {
+                    elements = [elements];
+                }
+
+                // Make sure we have a DOM element for each one, (could be string id name or toolkit object)
+                var i,
+                    realElements = [];
+                for (i = 0; i < elements.length; i++) {
+                    if (elements[i]) {
+                        if (typeof elements[i] === "string") {
+                            var element = _Global.document.getElementById(elements[i]);
+                            if (element) {
+                                realElements.push(element);
+                            }
+                        } else if (elements[i].element) {
+                            realElements.push(elements[i].element);
+                        } else {
+                            realElements.push(elements[i]);
+                        }
+                    }
+                }
+
+                return realElements;
+            }
+
+            // Verify that this HTML AppBar only has AppBarCommands. duplicate of private _Overlay member function
+            function _verifyCommandsOnly(element, type) {
+                var children = element.children;
+                var commands = new Array(children.length);
+                for (var i = 0; i < children.length; i++) {
+                    // If constructed they have win-command class, otherwise they have data-win-control
+                    if (!_ElementUtilities.hasClass(children[i], "win-command") && children[i].getAttribute("data-win-control") !== type) {
+                        //Not an AppBarCommand
+                        throw new _ErrorFromName("WinJS.UI.AppBar.MustContainCommands", strings.mustContainCommands);
+                    } else {
+                        // Instantiate the commands.
+                        ControlProcessor.processAll(children[i]);
+                        commands[i] = children[i].winControl;
+                    }
+                }
+                return commands;
+            }
+
+            // Remove all commands from the Phone AppBar UI
+            function _clearCommandBar() {
+                commandBar.primaryCommands.clear();
+                commandBar.secondaryCommands.clear();
+            }
+
+            var AppBar = _Base.Class.define(function AppBar_ctor(element, options) {
                 /// <signature helpKeyword="WinJS.UI.AppBar.AppBar">
                 /// <summary locid="WinJS.UI.AppBar.constructor">
                 /// Creates a new AppBar control.
@@ -41806,353 +35719,237 @@ define('WinJS/Controls/AppBar',[
                 /// </returns>
                 /// </signature>
 
+                // The first time getForCurrentView() is called, the commandBar will become visible. Subsequent calls just return the same static instance of the commandBar.
+                // The act of creating this AppBar will replace all of the static commandBar's contents and state with the contents and state of this AppBar
+                // (unless options.disabled === true)
+                commandBar = core.WebUICommandBar.getForCurrentView();
+                commandBar.isOpen = false;
+
+                this._uniqueId = appBarCounter;
+                appBarCounter++;
+
                 this._initializing = true;
 
                 // Simplify checking later
                 options = options || {};
 
-                // Make sure there's an element
+                // Make sure there's an input element
                 this._element = element || _Global.document.createElement("div");
                 this._id = this._element.id || _ElementUtilities._uniqueID(this._element);
                 this._writeProfilerMark("constructor,StartTM");
 
-                if (!this._element.hasAttribute("tabIndex")) {
-                    this._element.tabIndex = -1;
-                }
-
-                // Attach our css class.
-                _ElementUtilities.addClass(this._element, _Constants.appBarClass);
-
-                // Make sure we have an ARIA role
-                var role = this._element.getAttribute("role");
-                if (!role) {
-                    this._element.setAttribute("role", "menubar");
-                }
-                var label = this._element.getAttribute("aria-label");
-                if (!label) {
-                    this._element.setAttribute("aria-label", strings.ariaLabel);
-                }
-
-                // Call the _Overlay constructor helper to finish setting up our element.
-                // Don't pass constructor options, AppBar needs to set those itself specific order.
-                this._baseOverlayConstructor(this._element);
-
-                // Start off hidden
-                this._lastPositionVisited = displayModeVisiblePositions.none;
-                _ElementUtilities.addClass(this._element, _Constants.hiddenClass);
-
-                // validate that if they didn't set commands, but want command
-                // layout that the HTML only contains commands.  Do this first
-                // so that we don't leave partial AppBars in the DOM.
-                if (options.layout !== _Constants.appBarLayoutCustom && !options.commands && this._element) {
+                // validate that if they didn't set commands, that the HTML
+                // only contains commands.  Do this first so that we don't
+                // leave partial AppBars in the DOM.
+                if (!options.commands && this._element) {
                     // Shallow copy object so we can modify it.
                     options = _BaseUtils._shallowCopy(options);
-                    options.commands = this._verifyCommandsOnly(this._element, "WinJS.UI.AppBarCommand");
+                    options.commands = _verifyCommandsOnly(this._element, "WinJS.UI.AppBarCommand");
                 }
 
-                // Add Invoke button.
-                this._invokeButton = _Global.document.createElement("button");
-                this._invokeButton.tabIndex = 0;
-                this._invokeButton.innerHTML = "<span class='" + _Constants.ellipsisClass + "'></span>";
-                _ElementUtilities.addClass(this._invokeButton, _Constants.invokeButtonClass);
-                this._element.appendChild(this._invokeButton);
-                var that = this;
-                _ElementUtilities._addEventListener(this._invokeButton, "pointerdown", function () { _Overlay._Overlay._addHideFocusClass(that._invokeButton); }, false);
-                this._invokeButton.addEventListener("click", function () { AppBar._toggleAllAppBarsState(_KeyboardBehavior._keyboardSeenLast, that); }, false);
+                // Check to make sure we weren't duplicated
+                var winControl = this._element.winControl;
+                if (winControl) {
+                    throw new _ErrorFromName("WinJS.UI.AppBar.DuplicateConstruction", strings.duplicateConstruction);
+                }
 
-                // Run layout setter immediately. We need to know our layout in order to correctly
-                // position any commands that may be getting set through the constructor.
-                this.layout = options.layout || _Constants.appBarLayoutCommands;
-                delete options.layout;
+                this._disposed = false;
 
-                // Need to set placement before closedDisplayMode, closedDisplayMode sets our starting position, which is dependant on placement.
-                this.placement = options.placement || _Constants.appBarPlacementBottom;
-                this.closedDisplayMode = options.closedDisplayMode || closedDisplayModes.minimal;
+                if (!options.disabled) {
+                    // Explicity set to false to ensure sure that setOptions sees the 'disabled' property on the options object.
+                    options.disabled = false;
+                } else {
+                    // If we're supposed to be disabled, set the disabled property immediately to
+                    // disconnect from the commandBar before setOptions() is called.
+                    this.disabled = options.disabled;
+                    delete options.disabled;
+                }
+
+                // Default hidden display mode
+                options.closedDisplayMode = options.closedDisplayMode || closedDisplayCompact;
+
+                // Remember ourselves
+                this._element.winControl = this;
+
+                // Attach our css classes
+                _ElementUtilities.addClass(this._element, _Constants.overlayClass);
+                _ElementUtilities.addClass(this._element, "win-disposable");
+                _ElementUtilities.addClass(this._element, _Constants.appBarClass);
+                _ElementUtilities.addClass(this._element, _Constants.bottomClass);
+                _ElementUtilities.addClass(this._element, _Constants.commandLayoutClass);
+
+                this._wireUpEvents();
 
                 _Control.setOptions(this, options);
 
                 this._initializing = false;
 
-                // Make a click eating div
-                _Overlay._Overlay._createClickEatingDivAppBar();
-
-                // Handle key down (esc) and (left & right)
-                this._element.addEventListener("keydown", this._handleKeyDown.bind(this), false);
-
-                // Attach event handler
-                if (!appBarCommandEvent) {
-                    // We'll trigger on invoking.  Could also have invoked or canceled
-                    // Eventually we may want click up on invoking and drop back on invoked.
-                    // Check for namespace so it'll behave in the designer.
-                    if (_WinRT.Windows.UI.Input.EdgeGesture) {
-                        var commandUI = _WinRT.Windows.UI.Input.EdgeGesture.getForCurrentView();
-                        commandUI.addEventListener("starting", _startingEdgy);
-                        commandUI.addEventListener("completed", _completedEdgy);
-                        commandUI.addEventListener("canceled", _canceledEdgy);
-                    }
-
-                    // Need to know if the IHM is done scrolling
-                    _Global.document.addEventListener("MSManipulationStateChanged", _allManipulationChanged, false);
-
-                    appBarCommandEvent = true;
-                }
-
-                // Make sure _Overlay event handlers are hooked up (this aids light dismiss)
-                this._addOverlayEventHandlers(false);
-
-                // Need to store what had focus before
-                _ElementUtilities._addEventListener(this._element, "focusin", function (event) { _checkStorePreviousFocus(event); }, false);
-
-                // Need to hide ourselves if we lose focus
-                _ElementUtilities._addEventListener(this._element, "focusout", function () { _Overlay._Overlay._hideIfAllAppBarsLostFocus(); }, false);
-
-
-                if (this.closedDisplayMode === closedDisplayModes.none && this.layout === _Constants.appBarLayoutCommands) {
-                    // Remove the commands layout AppBar from the layout tree at this point so we don't cause unnecessary layout costs whenever
-                    // the window resizes or when CSS changes are applied to the commands layout AppBar's parent element.
-                    this._element.style.display = "none";
+                // Compute WebUICommandBar colors
+                if (_Global.document.body.contains(this.element)) {
+                    this._updateCommandBarColors();
+                } else {
+                    Scheduler.schedule(this._updateCommandBarColors, Scheduler.Priority.high, this, "WinJS.UI.AppBar._updateCommandBarColorsAsync");
                 }
 
                 this._writeProfilerMark("constructor,StopTM");
 
                 return this;
             }, {
-                // Public Properties
-
-                /// <field type="String" defaultValue="bottom" oamOptionsDatatype="WinJS.UI.AppBar.placement" locid="WinJS.UI.AppBar.placement" helpKeyword="WinJS.UI.AppBar.placement">The placement of the AppBar on the display.  Values are "top" or "bottom".</field>
-                placement: {
-                    get: function AppBar_get_placement() {
-                        return this._placement;
-                    },
-                    set: function AppBar_set_placement(value) {
-                        // In designer we may have to move it
-                        var wasShown = false;
-                        if (_WinRT.Windows.ApplicationModel.DesignMode.designModeEnabled) {
-                            this._hide();
-                            wasShown = true;
-                        }
-
-                        if (!this.hidden) {
-                            throw new _ErrorFromName("WinJS.UI.AppBar.CannotChangePlacementWhenVisible", strings.cannotChangePlacementWhenVisible);
-                        }
-
-                        // Set placement, coerce invalid values to 'bottom'
-                        this._placement = (value === _Constants.appBarPlacementTop) ? _Constants.appBarPlacementTop : _Constants.appBarPlacementBottom;
-
-                        // Clean up win-top, win-bottom styles
-                        if (this._placement === _Constants.appBarPlacementTop) {
-                            _ElementUtilities.addClass(this._element, _Constants.topClass);
-                            _ElementUtilities.removeClass(this._element, _Constants.bottomClass);
-                        } else if (this._placement === _Constants.appBarPlacementBottom) {
-                            _ElementUtilities.removeClass(this._element, _Constants.topClass);
-                            _ElementUtilities.addClass(this._element, _Constants.bottomClass);
-                        }
-
-                        // Show again if we hid ourselves for the designer
-                        if (wasShown) {
-                            this._show();
-                        }
+                /// <field type="HTMLElement" domElement="true" readonly="true" hidden="true" locid="WinJS.UI.AppBar.element" helpKeyword="WinJS.UI.AppBar.element">
+                /// The DOM element the AppBar is attached to
+                /// </field>
+                element: {
+                    get: function () {
+                        return this._element;
                     }
                 },
 
-                /// <field type="String" defaultValue="commands" oamOptionsDatatype="WinJS.UI.AppBar.layout" locid="WinJS.UI.AppBar.layout" helpKeyword="WinJS.UI.AppBar.layout">
-                /// Gets or sets the layout of the AppBar contents to either "commands" or "custom".
+                /// <field type="Boolean" locid="WinJS.UI.AppBar.disabled" helpKeyword="WinJS.UI.AppBar.disabled">
+                /// Disable an AppBar.
+                /// When disabled the AppBar will animate off of the screen, stop firing events and will no longer respond to method or property changes until it is re-enabled.
+                /// If another part of the App takes control of the commandBar while the AppBar is disabled, the AppBar will not know about it.
+                /// While the AppBar is disabled it will not respond to any commandBar events that it has registered listeners for.
+                /// Re-enabling an AppBar will take back control of the commandBar and overwrite the commandBar's current state with the commands and state of the re-enabled AppBar.
                 /// </field>
-                layout: {
-                    get: function AppBar_get_layout() {
-                        return this._layout.type;
+                disabled: {
+                    get: function () {
+                        return this._disabled;
                     },
-                    set: function (layout) {
-                        if (layout !== _Constants.appBarLayoutCommands && layout !== _Constants.appBarLayoutCustom) {
-                            throw new _ErrorFromName("WinJS.UI.AppBar.BadLayout", strings.badLayout);
-                        }
+                    set: function (value) {
+                        value = !!value;
 
-                        // In designer we may have to redraw it
-                        var wasShown = false;
-                        if (_WinRT.Windows.ApplicationModel.DesignMode.designModeEnabled) {
-                            this._hide();
-                            wasShown = true;
-                        }
+                        var isCurrent = (currentAppBar === this._uniqueId);
+                        var changingState = (value !== this._disabled);
+                        var initializing = this._initializing;
 
-                        if (!this.hidden) {
-                            throw new _ErrorFromName("WinJS.UI.AppBar.CannotChangeLayoutWhenVisible", strings.cannotChangeLayoutWhenVisible);
-                        }
+                        if (!isCurrent || changingState || initializing){
+                            if (!value) { // Enabling
 
-                        var commands;
-                        if (!this._initializing) {
-                            // Gather commands in preparation for hand off to new layout.
-                            // We expect prev layout to return commands in the order they were set in,
-                            // not necessarily the current DOM order the layout is using.
-                            commands = this._layout.commandsInOrder;
-                            this._layout.disconnect();
-                        }
+                                // When we enable the AppBar, the AppBar should take control of the commandBar and inject itself into it.
+                                // It's IMPORTANT that we SET THIS FIRST, otherwise the AppBar components that interact with the commandBar will Nop.
+                                this._disabled = false;
 
-                        // Set layout
-                        if (layout === _Constants.appBarLayoutCommands) {
-                            this._layout = new _Layouts._AppBarCommandsLayout();
-                        } else {
-                            // Custom layout uses Base AppBar Layout class.
-                            this._layout = new _Layouts._AppBarBaseLayout();
-                        }
-                        this._layout.connect(this._element);
-
-                        if (commands && commands.length) {
-                            // Reset AppBar since layout changed.
-                            this._layoutCommands(commands);
-                        }
-                        this._layout.connect(this._element);
-
-                        if (commands && commands.length) {
-                            // Reset AppBar since layout changed.
-                            this._layoutCommands(commands);
-                        }
-
-                        // Show again if we hid ourselves for the designer
-                        if (wasShown) {
-                            this._show();
-                        }
-                    },
-                    configurable: true
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.AppBar.sticky" isAdvanced="true" helpKeyword="WinJS.UI.AppBar.sticky">
-                /// Gets or sets value that indicates whether the AppBar is sticky.
-                /// This value is true if the AppBar is sticky; otherwise, it's false.
-                /// </field>
-                sticky: {
-                    get: function AppBar_get_sticky() {
-                        return this._sticky;
-                    },
-                    set: function AppBar_set_sticky(value) {
-                        // If it doesn't change, do nothing
-                        if (this._sticky === !!value) {
-                            return;
-                        }
-
-                        this._sticky = !!value;
-
-                        // Note: caller still has to call .show() if also want it shown.
-
-                        // Show or hide the click eating div based on sticky value
-                        if (!this.hidden && this._element.style.visibility === "visible") {
-                            // May have changed sticky state for keyboard navigation
-                            _updateAllAppBarsFirstAndFinalDiv();
-
-                            // Ensure that the click eating div is in the correct state
-                            if (this._sticky) {
-                                if (!_isThereVisibleNonStickyBar()) {
-                                    _Overlay._Overlay._hideClickEatingDivAppBar();
+                                currentAppBar = this._uniqueId;
+                                if (!this._initializing) {
+                                    // An AppBar that was previously disabled is not guaranteed to be in sync with the commandBar when that AppBar is re-enabled.
+                                    // Re-load this AppBar's state into the commandBar.
+                                    this.closedDisplayMode = this.closedDisplayMode;
+                                    this._setCommands(this._getCommands());
+                                    this._updateCommandBarColors();
                                 }
-                            } else {
-                                _Overlay._Overlay._showClickEatingDivAppBar();
 
-                                if (this._shouldStealFocus()) {
-                                    _storePreviousFocus(_Global.document.activeElement);
-                                    this._setFocusToAppBar();
+                                // Show AppBar UI
+                                commandBar.visible = true;
+
+                            } else { // Disabling
+
+                                if (isCurrent) {
+                                    // If the commandBar menu was open, hiding the commandBar will throw the "menuclosed" event.
+                                    commandBar.visible = false;
+                                    currentAppBar = null;
                                 }
+
+                                // It's IMPORTANT that we SET THIS LAST when disabling the AppBar. Otherwise we disconnect from the commandBar
+                                // too early, and fail to fire the AppBar "hiding" event if the commandBar tells us "menuclosed".
+                                this._disabled = true;
                             }
                         }
                     }
                 },
 
+                /// <field type="Boolean" hidden="true" locid="WinJS.UI.AppBar.hidden" helpKeyword="WinJS.UI.AppBar.hidden">
+                /// Read only, true if the AppBar is currently not open.
+                /// </field>
+                hidden: {
+                    get: function () {
+                        return (this.disabled || !commandBar.isOpen);
+                    }
+                },
+
+                /// <field type="String" defaultValue="bottom" oamOptionsDatatype="WinJS.UI.AppBar.placement" locid="WinJS.UI.AppBar.placement" helpKeyword="WinJS.UI.AppBar.placement" hidden="true">
+                /// The placement of the AppBar on the display. The only value for phone is "bottom".
+                /// </field>
+                placement: {
+                    get: function () {
+                        // Always bottom for phone
+                        return _Constants.appBarPlacementBottom;
+                    },
+                    set: function () {
+                        //NOP on phone
+                    }
+                },
+
+                /// <field type="String" defaultValue="commands" oamOptionsDatatype="WinJS.UI.AppBar.layout" locid="WinJS.UI.AppBar.layout" helpKeyword="WinJS.UI.AppBar.layout" hidden="true">
+                /// The layout of the AppBar contents. "Commands is the only value on phone"
+                /// </field>
+                layout: {
+                    get: function () {
+                        // Always commands on phone
+                        return _Constants.appBarLayoutCommands;
+                    },
+                    set: function (value) {
+                        if (value !== _Constants.appBarLayoutCommands && value !== _Constants.appBarLayoutCustom) {
+                            throw new _ErrorFromName("WinJS.UI.AppBar.BadLayout", strings.badLayout);
+                        }
+                        // NOP on phone
+                    },
+                },
+
+                /// <field type="Boolean" locid="WinJS.UI.AppBar.sticky" isAdvanced="true" helpKeyword="WinJS.UI.AppBar.sticky">
+                /// The value that indicates whether the AppBar is sticky. false is the only value on phone.
+                /// </field>
+                sticky: {
+                    get: function () {
+                        return false; // Always false on phone.
+                    },
+                    set: function () {
+                        // NOP on phone
+                    },
+                },
+
                 /// <field type="Array" locid="WinJS.UI.AppBar.commands" helpKeyword="WinJS.UI.AppBar.commands" isAdvanced="true">
-                /// Sets the AppBarCommands in the AppBar. This property accepts an array of AppBarCommand objects.
+                /// Gets/Sets the AppBarCommands in the AppBar. This property accepts an array of AppBarCommand objects.
                 /// </field>
                 commands: {
-                    set: function AppBar_set_commands(commands) {
-                        // Fail if trying to set when shown
+                    set: function (value) {
+                        // Fail if trying to set when visible
                         if (!this.hidden) {
-                            throw new _ErrorFromName("WinJS.UI.AppBar.CannotChangeCommandsWhenVisible", _Resources._formatString(_Overlay._Overlay.commonstrings.cannotChangeCommandsWhenVisible, "AppBar"));
+                            throw new _ErrorFromName("WinJS.UI.AppBar.CannotChangeCommandsWhenVisible", _Resources._formatString(strings.cannotChangeCommandsWhenVisible, "AppBar")); // Duplicate string from Overlay
                         }
 
-                        // Dispose old commands before tossing them out.
+                        // Start from scratch
                         if (!this._initializing) {
                             // AppBarCommands defined in markup don't want to be disposed during initialization.
                             this._disposeChildren();
                         }
-                        this._layoutCommands(commands);
+
+                        this._setCommands(value);
+
+                        if (!this._initializing) {
+                            // Compute WebUICommandBar colors
+                            this._updateCommandBarColors();
+                        }
                     }
                 },
 
-                _layoutCommands: function AppBar_layoutCommands(commands) {
-                    // Function precondition: AppBar must not be shown.
-
-                    // Empties AppBar HTML and repopulates with passed in commands.
-                    _ElementUtilities.empty(this._element);
-                    this._element.appendChild(this._invokeButton); // Keep our Show/Hide button.
-
-                    // In case they had only one command to set...
-                    if (!Array.isArray(commands)) {
-                        commands = [commands];
-                    }
-
-                    this._layout.layout(commands);
-                },
-
-                /// <field type="String" defaultValue="minimal" locid="WinJS.UI.AppBar.closedDisplayMode" helpKeyword="WinJS.UI.AppBar.closedDisplayMode" isAdvanced="true">
-                /// Gets/Sets how AppBar will display itself while hidden. Values are "none" and "minimal".
+                /// <field type="String" defaultValue="compact" locid="WinJS.UI.AppBar.closedDisplayMode" helpKeyword="WinJS.UI.AppBar.closedDisplayMode" isAdvanced="true">
+                /// Gets/Sets how AppBar will display itself while closed. Values are "compact" and "minimal".
+                /// <compatibleWith platform="WindowsPhoneApp" minVersion="8.1"/>
                 /// </field>
                 closedDisplayMode: {
-                    get: function AppBar_get_closedDisplayMode() {
-                        return this._closedDisplayMode;
+                    get: function () {
+                        return this._closedDisplayMode || closedDisplayCompact;
                     },
-                    set: function AppBar_set_closedDisplayMode(value) {
-                        var oldValue = this._closedDisplayMode;
-
-                        if (oldValue !== value) {
-                            if (value === closedDisplayModes.none) {
-                                this._closedDisplayMode = closedDisplayModes.none;
-                                _ElementUtilities.removeClass(this._element, _Constants.minimalClass);
+                    set: function (value) {
+                        this._closedDisplayMode = value;
+                        if (!this.disabled) {
+                            var closedDisplayEnum = core.WebUICommandBarClosedDisplayMode;
+                            if (value === closedDisplayMinimal) {
+                                commandBar.closedDisplayMode = closedDisplayEnum.minimal;
                             } else {
-                                // Minimal is default fallback.
-                                this._closedDisplayMode = closedDisplayModes.minimal;
-                                _ElementUtilities.addClass(this._element, _Constants.minimalClass);
-                            }
-
-                            // The invoke button has changed the amount of available space in the AppBar. Layout might need to scale.
-                            this._layout.resize();
-
-                            if (_ElementUtilities.hasClass(this._element, _Constants.hiddenClass) || _ElementUtilities.hasClass(this._element, _Constants.hidingClass)) {
-                                // If the value is being set while we are not showing, change to our new position.
-                                this._changeVisiblePosition(displayModeVisiblePositions[this._closedDisplayMode]);
+                                commandBar.closedDisplayMode = closedDisplayEnum.compact;
                             }
                         }
-                    },
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.AppBar.disabled" helpKeyword="WinJS.UI.AppBar.disabled">
-                /// Disable an AppBar, setting or getting the HTML disabled attribute. While disabled, the AppBar is hidden completely, and will not respond to attempts to show it.
-                /// </field>
-                disabled: {
-                    get: function () {
-                        // Ensure it's a boolean because we're using the DOM element to keep in-sync
-                        return !!this._element.disabled;
-                    },
-                    set: function (disable) {
-                        var disable = !!disable;
-                        if (this.disabled !== disable) {
-                            this._element.disabled = disable;
-                            var toPosition;
-                            if (disable) {
-                                // Disabling. Move to the position mapped to the disabled state.
-                                toPosition = displayModeVisiblePositions.disabled;
-                            } else {
-                                // Enabling. Move to the position mapped to our closedDisplayMode.
-                                toPosition = displayModeVisiblePositions[this.closedDisplayMode];
-                            }
-                            this._hide(toPosition);
-                        }
-                    },
-                },
-
-                /// <field type="Boolean" hidden="true" locid="WinJS.UI._AppBar.hidden" helpKeyword="WinJS.UI._AppBar.hidden">Read only, true if an AppBar is 'hidden'.</field>
-                hidden: {
-                    get: function () {
-                        // Returns true if AppBar is 'hidden'.
-                        return _ElementUtilities.hasClass(this._element, _Constants.hiddenClass) ||
-                            _ElementUtilities.hasClass(this._element, _Constants.hidingClass) ||
-                            this._doNext === displayModeVisiblePositions.minimal ||
-                            this._doNext === displayModeVisiblePositions.none;
                     },
                 },
 
@@ -42168,21 +35965,24 @@ define('WinJS/Controls/AppBar',[
                     /// </returns>
                     /// </signature>
                     var commands = this.element.querySelectorAll("#" + id);
-                    var newCommands = [];
-                    for (var count = 0, len = commands.length; count < len; count++) {
-                        if (commands[count].winControl) {
-                            newCommands.push(commands[count].winControl);
+                    for (var count = 0; count < commands.length; count++) {
+                        // Any elements we generated this should succeed for,
+                        // but remove missing ones just to be safe.
+                        commands[count] = commands[count].winControl;
+                        if (!commands[count]) {
+                            commands.splice(count, 1);
                         }
                     }
 
-                    if (newCommands.length === 1) {
-                        return newCommands[0];
-                    } else if (newCommands.length === 0) {
+                    if (commands.length === 1) {
+                        return commands[0];
+                    } else if (commands.length === 0) {
                         return null;
                     }
 
-                    return newCommands;
+                    return commands;
                 },
+
 
                 showCommands: function (commands) {
                     /// <signature helpKeyword="WinJS.UI.AppBar.showCommands">
@@ -42193,12 +35993,15 @@ define('WinJS/Controls/AppBar',[
                     /// An array of the commands to show. The array elements may be AppBarCommand objects, or the string identifiers (IDs) of commands.
                     /// </param>
                     /// </signature>
-                    if (!commands) {
-                        throw new _ErrorFromName("WinJS.UI.AppBar.RequiresCommands", strings.requiresCommands);
-                    }
+                    if (!this.disabled) {
+                        if (!commands) {
+                            throw new _ErrorFromName("WinJS.UI.AppBar.RequiresCommands", strings.requiresCommands);
+                        }
 
-                    this._showCommands(commands);
+                        _showCommands.call(this, commands);
+                    }
                 },
+
 
                 hideCommands: function (commands) {
                     /// <signature helpKeyword="WinJS.UI.AppBar.hideCommands">
@@ -42207,12 +36010,15 @@ define('WinJS/Controls/AppBar',[
                     /// </summary>
                     /// <param name="commands" type="Array" locid="WinJS.UI.AppBar.hideCommands_p:commands">Required. Command or Commands to hide, either String, DOM elements, or WinJS objects.</param>
                     /// </signature>
-                    if (!commands) {
-                        throw new _ErrorFromName("WinJS.UI.AppBar.RequiresCommands", strings.requiresCommands);
-                    }
+                    if (!this.disabled) {
+                        if (!commands) {
+                            throw new _ErrorFromName("WinJS.UI.AppBar.RequiresCommands", strings.requiresCommands);
+                        }
 
-                    this._hideCommands(commands);
+                        _hideCommands.call(this, commands);
+                    }
                 },
+
 
                 showOnlyCommands: function (commands) {
                     /// <signature helpKeyword="WinJS.UI.AppBar.showOnlyCommands">
@@ -42223,65 +36029,35 @@ define('WinJS/Controls/AppBar',[
                     /// An array of the commands to show. The array elements may be AppBarCommand objects, or the string identifiers (IDs) of commands.
                     /// </param>
                     /// </signature>
-                    if (!commands) {
-                        throw new _ErrorFromName("WinJS.UI.AppBar.RequiresCommands", strings.requiresCommands);
-                    }
+                    if (!this.disabled) {
+                        if (!commands) {
+                            throw new _ErrorFromName("WinJS.UI.AppBar.RequiresCommands", strings.requiresCommands);
+                        }
 
-                    this._showOnlyCommands(commands);
+                        _showOnlyCommands.call(this, commands);
+                    }
                 },
 
-                show: function () {
+                show: function AppBar_show() {
                     /// <signature helpKeyword="WinJS.UI.AppBar.show">
                     /// <summary locid="WinJS.UI.AppBar.show">
-                    /// Shows the AppBar, if hidden and not disabled, regardless of other state.
+                    /// Shows the AppBar, if hidden, regardless of other state
                     /// </summary>
                     /// </signature>
                     // Just wrap the private one, turning off keyboard invoked flag
                     this._writeProfilerMark("show,StartTM");
-                    this._keyboardInvoked = false;
-                    this._doNotFocus = !!this.sticky;
-                    this._show();
-                },
 
-                _show: function AppBar_show() {
-
-                    var toPosition = displayModeVisiblePositions.shown;
-                    var showing = null;
-
-                    // If we're already shown, we are just going to animate our position, not fire events or manage focus.
-                    if (!this.disabled && (_ElementUtilities.hasClass(this._element, _Constants.hiddenClass) || _ElementUtilities.hasClass(this._element, _Constants.hidingClass))) {
-                        showing = appbarShownState;
+                    // Don't do anything if disabled
+                    if (this.disabled) {
+                        return;
                     }
 
-                    this._changeVisiblePosition(toPosition, showing);
+                    commandBar.isOpen = true;
 
-                    if (showing) {
-                        // Configure shown state for lightdismiss & sticky appbars.
-                        if (!this.sticky) {
-                            // Need click-eating div to be visible ASAP.
-                            _Overlay._Overlay._showClickEatingDivAppBar();
-                        }
-
-                        // Clean up tabbing behavior by making sure first and final divs are correct after showing.
-                        if (!this.sticky && _isThereVisibleNonStickyBar()) {
-                            _updateAllAppBarsFirstAndFinalDiv();
-                        } else {
-                            this._updateFirstAndFinalDiv();
-                        }
-
-                        // Check if we should steal focus
-                        if (!this._doNotFocus && this._shouldStealFocus()) {
-                            // Store what had focus if nothing currently is stored
-                            if (!_Overlay._Overlay._ElementWithFocusPreviousToAppBar) {
-                                _storePreviousFocus(_Global.document.activeElement);
-                            }
-
-                            this._setFocusToAppBar();
-                        }
-                    }
+                    this._writeProfilerMark("show,StopTM");
                 },
 
-                hide: function () {
+                hide: function AppBar_hide() {
                     /// <signature helpKeyword="WinJS.UI.AppBar.hide">
                     /// <summary locid="WinJS.UI.AppBar.hide">
                     /// Hides the AppBar.
@@ -42289,6286 +36065,296 @@ define('WinJS/Controls/AppBar',[
                     /// </signature>
                     // Just wrap the private one
                     this._writeProfilerMark("hide,StartTM");
-                    this._hide();
-                },
-
-                _hide: function AppBar_hide(toPosition) {
-
-                    var toPosition = toPosition || displayModeVisiblePositions[this.closedDisplayMode];
-                    var hiding = null;
-
-                    // If were already hidden, we are just going to animate our position, not fire events or manage focus again.
-                    if (!_ElementUtilities.hasClass(this._element, _Constants.hiddenClass) && !_ElementUtilities.hasClass(this._element, _Constants.hidingClass)) {
-                        hiding = appbarHiddenState;
-                    }
-
-                    this._changeVisiblePosition(toPosition, hiding);
-                    if (hiding) {
-                        // Determine if there are any AppBars that are shown.
-                        // Set the focus to the next shown AppBar.
-                        // If there are none, set the focus to the control stored in the cache, which
-                        //   is what had focus before the AppBars were given focus.
-                        var appBars = _Global.document.querySelectorAll("." + _Constants.appBarClass);
-                        var areOtherAppBars = false;
-                        var areOtherNonStickyAppBars = false;
-                        var i;
-                        for (i = 0; i < appBars.length; i++) {
-                            var appBarControl = appBars[i].winControl;
-                            if (appBarControl && !appBarControl.hidden && (appBarControl !== this)) {
-                                areOtherAppBars = true;
-
-                                if (!appBarControl.sticky) {
-                                    areOtherNonStickyAppBars = true;
-                                    break;
-                                }
-                            }
-                        }
-
-                        var settingsFlyouts = _Global.document.querySelectorAll("." + _Constants.settingsFlyoutClass);
-                        var areVisibleSettingsFlyouts = false;
-                        for (i = 0; i < settingsFlyouts.length; i++) {
-                            var settingsFlyoutControl = settingsFlyouts[i].winControl;
-                            if (settingsFlyoutControl && !settingsFlyoutControl.hidden) {
-                                areVisibleSettingsFlyouts = true;
-                                break;
-                            }
-                        }
-
-                        if (!areOtherNonStickyAppBars && !areVisibleSettingsFlyouts) {
-                            // Hide the click eating div because there are no other AppBars showing
-                            _Overlay._Overlay._hideClickEatingDivAppBar();
-                        }
-
-                        var that = this;
-                        if (!areOtherAppBars) {
-                            // Set focus to what had focus before showing the AppBar
-                            if (_Overlay._Overlay._ElementWithFocusPreviousToAppBar &&
-                                (!_Global.document.activeElement || _Overlay._Overlay._isAppBarOrChild(_Global.document.activeElement))) {
-                                _restorePreviousFocus();
-                            }
-                            // Always clear the previous focus (to prevent temporary leaking of element)
-                            _Overlay._Overlay._ElementWithFocusPreviousToAppBar = null;
-                        } else if (AppBar._isWithinAppBarOrChild(_Global.document.activeElement, that.element)) {
-                            // Set focus to next visible AppBar in DOM
-
-                            var foundCurrentAppBar = false;
-                            for (i = 0; i <= appBars.length; i++) {
-                                if (i === appBars.length) {
-                                    i = 0;
-                                }
-
-                                var appBar = appBars[i];
-                                if (appBar === this.element) {
-                                    foundCurrentAppBar = true;
-                                } else if (foundCurrentAppBar && !appBar.winControl.hidden) {
-                                    appBar.winControl._keyboardInvoked = !!this._keyboardInvoked;
-                                    appBar.winControl._setFocusToAppBar();
-                                    break;
-                                }
-                            }
-                        }
-
-                        // If we are hiding the last lightDismiss AppBar,
-                        //   then we need to update the tabStops of the other AppBars
-                        if (!this.sticky && !_isThereVisibleNonStickyBar()) {
-                            _updateAllAppBarsFirstAndFinalDiv();
-                        }
-
-                        // Reset these values
-                        this._keyboardInvoked = false;
-                        this._doNotFocus = false;
-                    }
-                },
-
-                _dispose: function AppBar_dispose() {
-                    _Dispose.disposeSubTree(this.element);
-                    this._layout.dispose();
-                    this.disabled = true;
-
-                },
-
-                _disposeChildren: function AppBar_disposeChildren() {
-                    // Be purposeful about what we dispose.
-                    this._layout.disposeChildren();
-                },
-
-                _handleKeyDown: function AppBar_handleKeyDown(event) {
-                    // On Left/Right arrow keys, moves focus to previous/next AppbarCommand element.
-                    // On "Esc" key press hide flyouts and hide light dismiss AppBars.
-
-                    // Esc hides light-dismiss AppBars in all layouts but if the user has a text box with an IME
-                    // candidate window open, we want to skip the ESC key event since it is handled by the IME.
-                    // When the IME handles a key it sets event.keyCode === Key.IME for an easy check.
-                    if (event.keyCode === Key.escape && event.keyCode !== Key.IME) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        _Overlay._Overlay._hideAllFlyouts();
-                        _Overlay._Overlay._hideLightDismissAppBars(null, true);
-                    }
-
-                    // If the current active element isn't an intrinsic part of the AppBar,
-                    // Layout might want to handle additional keys.
-                    if (!this._invokeButton.contains(_Global.document.activeElement)) {
-                        this._layout.handleKeyDown(event);
-                    }
-                },
-
-                _visiblePixels: {
-                    get: function () {
-                        // Returns object containing pixel height of each visible position
-                        return {
-                            hidden: knownVisibleHeights.hidden,
-                            minimal: knownVisibleHeights.minimal,
-                            // Element can change size as content gets added or removed or if it
-                            // experinces style changes. We have to look this up at run time.
-                            shown: this._element.offsetHeight,
-                        };
-                    }
-                },
-
-                _visiblePosition: {
-                    // Returns string value of our nearest, stationary, visible position.
-                    get: function () {
-                        // If we're animating into a new posistion, return the position we're animating into.
-                        if (this._animating && displayModeVisiblePositions[this._element.winAnimating]) {
-                            return this._element.winAnimating;
-                        } else {
-                            return this._lastPositionVisited;
-                        }
-                    }
-                },
-
-                _visible: {
-                    // Returns true if our visible position is not completely hidden, else false.
-                    get: function () {
-                        return (this._visiblePosition !== displayModeVisiblePositions.none);
-                    }
-                },
-
-                _changeVisiblePosition: function (toPosition, newState) {
-                    /// <signature helpKeyword="WinJS.UI.AppBar._changeVisiblePosition">
-                    /// <summary locid="WinJS.UI.AppBar._changeVisiblePosition">
-                    /// Changes the visible position of the AppBar.
-                    /// </summary>
-                    /// <param name="toPosition" type="String" locid="WinJS.UI.AppBar._changeVisiblePosition_p:toPosition">
-                    /// Name of the visible position we want to move to.
-                    /// </param>
-                    /// <param name="newState" type="String" locid="WinJS.UI.AppBar._changeVisiblePosition_p:newState">
-                    /// Name of the state we are entering. Values can be "showing", "hiding" or null.
-                    /// If the value is null, then we are not changing states, only changing visible position.
-                    /// </param>
-                    /// </signature>
-
-                    if ((this._visiblePosition === toPosition && !this._keyboardObscured) ||
-                        (this.disabled && toPosition !== displayModeVisiblePositions.disabled)) {
-                        // If we want to go where we already are, or we're disabled, return false.
-                        this._afterPositionChange(null);
-                    } else if (this._animating || this._needToHandleShowingKeyboard || this._needToHandleHidingKeyboard) {
-                        // Only do one thing at a time. If we are already animating,
-                        // or the IHM is animating, schedule this for later.
-                        this._doNext = toPosition;
-                        this._afterPositionChange(null);
-                    } else {
-                        // Begin position changing sequence.
-
-                        // Set the animating flag to block any queued position changes until we're done.
-                        this._element.winAnimating = toPosition;
-                        var performAnimation = this._initializing ? false : true;
-
-                        // Assume we are animating from the last position visited.
-                        var fromPosition = this._lastPositionVisited;
-
-                        // We'll need to measure our element to determine how far we need to animate.
-                        // Make sure we have accurate dimensions.
-                        this._element.style.display = "";
-
-                        // Are we hiding completely, or about to become visible?
-                        var hidingCompletely = (toPosition === displayModeVisiblePositions.hidden);
-
-                        if (this._keyboardObscured) {
-                            // We're changing position while covered by the IHM.
-                            if (hidingCompletely) {
-                                // If we're covered by the IHM we already look hidden.
-                                // We can skip our animation and just hide.
-                                performAnimation = false;
-                            } else {
-                                // Some portion of the AppBar should be visible to users after its position changes.
-
-                                // Un-obscure ourselves and become visible to the user again.
-                                // Need to animate to our desired position as if we were coming up from behind the keyboard.
-                                fromPosition = displayModeVisiblePositions.hidden;
-                            }
-                            this._keyboardObscured = false;
-                        }
-
-                        // Fire "before" event if we are changing state.
-                        if (newState === appbarShownState) {
-                            this._beforeShow();
-                        } else if (newState === appbarHiddenState) {
-                            this._beforeHide();
-                        }
-
-                        // Position our element into the correct "end of animation" position,
-                        // also accounting for any viewport scrolling or soft keyboard positioning.
-                        this._ensurePosition();
-
-                        this._element.style.opacity = 1;
-                        this._element.style.visibility = "visible";
-
-                        this._animationPromise = (performAnimation) ? this._animatePositionChange(fromPosition, toPosition) : Promise.wrap();
-                        this._animationPromise.then(
-                            function () { this._afterPositionChange(toPosition, newState); }.bind(this),
-                            function () { this._afterPositionChange(toPosition, newState); }.bind(this)
-                        );
-                    }
-                },
-
-                _afterPositionChange: function AppBar_afterPosiitonChange(newPosition, newState) {
-                    // Defines body of work to perform after changing positions.
-                    if (this._disposed) {
-                        return;
-                    }
-
-                    if (newPosition) {
-                        // Clear animation flag and record having visited this position.
-                        this._element.winAnimating = "";
-                        this._lastPositionVisited = newPosition;
-
-                        if (this._doNext === this._lastPositionVisited) {
-                            this._doNext = "";
-                        }
-
-                        if (newPosition === displayModeVisiblePositions.hidden) {
-                            // Make sure animation is finished.
-                            this._element.style.visibility = "hidden";
-                            this._element.style.display = "none";
-                        }
-
-                        // Clean up animation transforms.
-                        var transformProperty = _BaseUtils._browserStyleEquivalents["transform"].scriptName;
-                        this._element.style[transformProperty] = "";
-
-                        // Fire "after" event if we changed state.
-                        if (newState === appbarShownState) {
-                            this._afterShow();
-                        } else if (newState === appbarHiddenState) {
-                            this._afterHide();
-                        }
-
-                        // If we had something queued, do that
-                        Scheduler.schedule(this._checkDoNext, Scheduler.Priority.normal, this, "WinJS.UI.AppBar._checkDoNext");
-                    }
-
-                    this._afterPositionChangeCallBack();
-                },
-
-                _afterPositionChangeCallBack: function () {
-                    // Leave this blank for unit tests to overwrite.
-                },
-
-                _beforeShow: function AppBar_beforeShow() {
-                    // Each overlay tracks the size of the <HTML> element for triggering light-dismiss in the window resize handler.
-                    this._cachedDocumentSize = this._cachedDocumentSize || _Overlay._Overlay._sizeOfDocument();
-
-                    // In case their event 'beforeshow' event listener is going to manipulate commands,
-                    // first see if there are any queued command animations we can handle while we're still hidden.
-                    if (this._queuedCommandAnimation) {
-                        this._showAndHideFast(this._queuedToShow, this._queuedToHide);
-                        this._queuedToShow = [];
-                        this._queuedToHide = [];
-                    }
-
-                    // Make sure everything fits before showinging
-                    this._layout.scale();
-
-                    _ElementUtilities.removeClass(this._element, _Constants.hiddenClass);
-                    _ElementUtilities.addClass(this._element, _Constants.showingClass);
-
-                    // Send our "beforeShow" event
-                    this._sendEvent(_Overlay._Overlay.beforeShow);
-                },
-
-                _afterShow: function AppBar_afterShow() {
-                    _ElementUtilities.removeClass(this._element, _Constants.showingClass);
-                    _ElementUtilities.addClass(this._element, _Constants.shownClass);
-
-                    // Send our "afterShow" event
-                    this._sendEvent(_Overlay._Overlay.afterShow);
-                    this._writeProfilerMark("show,StopTM");
-                },
-
-                _beforeHide: function AppBar_beforeHide() {
-
-                    _ElementUtilities.removeClass(this._element, _Constants.shownClass);
-                    _ElementUtilities.addClass(this._element, _Constants.hidingClass);
-
-                    // Send our "beforeHide" event
-                    this._sendEvent(_Overlay._Overlay.beforeHide);
-                },
-
-                _afterHide: function AppBar_afterHide() {
-
-                    // In case their 'afterhide' event handler is going to manipulate commands,
-                    // first see if there are any queued command animations we can handle now we're hidden.
-                    if (this._queuedCommandAnimation) {
-                        this._showAndHideFast(this._queuedToShow, this._queuedToHide);
-                        this._queuedToShow = [];
-                        this._queuedToHide = [];
-                    }
-
-                    _ElementUtilities.removeClass(this._element, _Constants.hidingClass);
-                    _ElementUtilities.addClass(this._element, _Constants.hiddenClass);
-
-                    // Send our "afterHide" event
-                    this._sendEvent(_Overlay._Overlay.afterHide);
-                    this._writeProfilerMark("hide,StopTM");
-                },
-
-                _animatePositionChange: function AppBar_animatePositionChange(fromPosition, toPosition) {
-                    // Determines and executes the proper transition between visible positions
-
-                    // Get values in terms of pixels to perform animation.
-                    var beginningVisiblePixelHeight = this._visiblePixels[fromPosition],
-                        endingVisiblePixelHeight = this._visiblePixels[toPosition],
-                        distance = Math.abs(endingVisiblePixelHeight - beginningVisiblePixelHeight),
-                        offsetTop = (this._placement === _Constants.appBarPlacementTop) ? -distance : distance;
-
-                    // Animate
-                    if (endingVisiblePixelHeight > beginningVisiblePixelHeight) {
-                        var fromOffset = { top: offsetTop + "px", left: "0px" };
-                        return Animations.showEdgeUI(this._element, fromOffset, { mechanism: "transition" });
-                    } else {
-                        var toOffset = { top: offsetTop + "px", left: "0px" };
-                        return Animations.hideEdgeUI(this._element, toOffset, { mechanism: "transition" });
-                    }
-                },
-
-                _checkDoNext: function AppBar_checkDoNext() {
-                    // Do nothing if we're still animating
-                    if (this._animating || this._needToHandleShowingKeyboard || this._needToHandleHidingKeyboard || this._disposed) {
-                        return;
-                    }
-
-                    if (this._doNext === displayModeVisiblePositions.disabled ||
-                        this._doNext === displayModeVisiblePositions.hidden ||
-                        this._doNext === displayModeVisiblePositions.minimal) {
-                        // Do hide first because animating commands would be easier
-                        this._hide(this._doNext);
-                        this._doNext = "";
-                    } else if (this._queuedCommandAnimation) {
-                        // Do queued commands before showing if possible
-                        this._showAndHideQueue();
-                    } else if (this._doNext === displayModeVisiblePositions.shown) {
-                        // Show last so that we don't unnecessarily animate commands
-                        this._show();
-                        this._doNext = "";
-                    }
-                },
-
-                _isABottomAppBarInTheProcessOfShowing: function AppBar_isABottomAppBarInTheProcessOfShowing() {
-                    var appbars = _Global.document.querySelectorAll("." + _Constants.appBarClass + "." + _Constants.bottomClass);
-                    for (var i = 0; i < appbars.length; i++) {
-                        if (appbars[i].winAnimating === displayModeVisiblePositions.shown) {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                },
-
-                // Returns true if
-                //   1) This is a bottom appbar
-                //   2) No appbar has focus and a bottom appbar is not in the process of showing
-                //   3) What currently has focus is neither a bottom appbar nor a top appbar
-                //      AND a bottom appbar is not in the process of showing.
-                // Otherwise Returns false
-                _shouldStealFocus: function AppBar_shouldStealFocus() {
-                    var activeElementAppBar = _Overlay._Overlay._isAppBarOrChild(_Global.document.activeElement);
-                    if (this._element === activeElementAppBar) {
-                        // This appbar already has focus and we don't want to move focus
-                        // from where it currently is in this appbar.
-                        return false;
-                    }
-                    if (this._placement === _Constants.appBarPlacementBottom) {
-                        // This is a bottom appbar
-                        return true;
-                    }
-
-                    var isBottomAppBarShowing = this._isABottomAppBarInTheProcessOfShowing();
-                    if (!activeElementAppBar) {
-                        // Currently no appbar has focus.
-                        // Return true if a bottom appbar is not in the process of showing.
-                        return !isBottomAppBarShowing;
-                    }
-                    if (!activeElementAppBar.winControl) {
-                        // This should not happen, but if it does we want to make sure
-                        // that an AppBar ends up with focus.
-                        return true;
-                    }
-                    if ((activeElementAppBar.winControl._placement !== _Constants.appBarPlacementBottom)
-                     && (activeElementAppBar.winControl._placement !== _Constants.appBarPlacementTop)
-                     && !isBottomAppBarShowing) {
-                        // What currently has focus is neither a bottom appbar nor a top appbar
-                        // -and-
-                        // a bottom appbar is not in the process of showing.
-                        return true;
-                    }
-                    return false;
-                },
-
-                // Set focus to the passed in AppBar
-                _setFocusToAppBar: function AppBar_setFocusToAppBar() {
-                    if (this._focusOnFirstFocusableElement()) {
-                        // Prevent what is gaining focus from showing that it has focus,
-                        // but only in the non-keyboard scenario.
-                        if (!this._keyboardInvoked) {
-                            _Overlay._Overlay._addHideFocusClass(_Global.document.activeElement);
-                        }
-                    } else {
-                        // No first element, set it to appbar itself
-                        _Overlay._Overlay._trySetActive(this._element);
-                    }
-                },
-
-                _commandsUpdated: function AppBar_commandsUpdated() {
-                    // If we are still initializing then we don't have a layout yet so it doesn't need updating.
-                    if (!this._initializing) {
-                        this._layout.commandsUpdated();
-                        this._layout.scale();
-                    }
-                },
-
-                _beginAnimateCommands: function AppBar_beginAnimateCommands(showCommands, hideCommands, otherVisibleCommands) {
-                    // The parameters are 3 mutually exclusive arrays of win-command elements contained in this Overlay.
-                    // 1) showCommands[]: All of the HIDDEN win-command elements that ARE scheduled to show.
-                    // 2) hideCommands[]: All of the VISIBLE win-command elements that ARE scheduled to hide.
-                    // 3) otherVisibleCommands[]: All VISIBLE win-command elements that ARE NOT scheduled to hide.
-                    this._layout.beginAnimateCommands(showCommands, hideCommands, otherVisibleCommands);
-                },
-
-                _endAnimateCommands: function AppBar_endAnimateCommands() {
-                    this._layout.endAnimateCommands();
-                    this._endAnimateCommandsCallBack();
-                },
-
-                _endAnimateCommandsCallBack: function AppBar_endAnimateCommandsCallBack() {
-                    // Leave this blank for unit tests to overwrite.
-                },
-
-                // Get the top offset for top appbars.
-                _getTopOfVisualViewport: function AppBar_getTopOfVisualViewPort() {
-                    return _Overlay._Overlay._keyboardInfo._visibleDocTop;
-                },
-
-                // Get the bottom offset for bottom appbars.
-                _getAdjustedBottom: function AppBar_getAdjustedBottom() {
-                    // Need the distance the IHM moved as well.
-                    return _Overlay._Overlay._keyboardInfo._visibleDocBottomOffset;
-                },
-
-                _showingKeyboard: function AppBar_showingKeyboard(event) {
-                    // Remember keyboard showing state.
-                    this._keyboardObscured = false;
-                    this._needToHandleHidingKeyboard = false;
-
-                    // If we're already moved, then ignore the whole thing
-                    if (_Overlay._Overlay._keyboardInfo._visible && this._alreadyInPlace()) {
-                        return;
-                    }
-
-                    this._needToHandleShowingKeyboard = true;
-                    // If focus is in the appbar, don't cause scrolling.
-                    if (!this.hidden && this._element.contains(_Global.document.activeElement)) {
-                        event.ensuredFocusedElementInView = true;
-                    }
-
-                    // Check if appbar moves or if we're ok leaving it obscured instead.
-                    if (this._visible && this._placement !== _Constants.appBarPlacementTop && _Overlay._Overlay._isFlyoutVisible()) {
-                        // Remember that we're obscured
-                        this._keyboardObscured = true;
-                    } else {
-                        // Don't be obscured, clear _scrollHappened flag to give us inference later on when to re-show ourselves.
-                        this._scrollHappened = false;
-                    }
-
-                    // Also set timeout regardless, so we can clean up our _keyboardShowing flag.
-                    var that = this;
-                    _Global.setTimeout(function (e) { that._checkKeyboardTimer(e); }, _Overlay._Overlay._keyboardInfo._animationShowLength + _Overlay._Overlay._scrollTimeout);
-                },
-
-                _hidingKeyboard: function AppBar_hidingKeyboard() {
-                    // We'll either just reveal the current space under the IHM or restore the window height.
-
-                    // We won't be obscured
-                    this._keyboardObscured = false;
-                    this._needToHandleShowingKeyboard = false;
-                    this._needToHandleHidingKeyboard = true;
-
-                    // We'll either just reveal the current space or resize the window
-                    if (!_Overlay._Overlay._keyboardInfo._isResized) {
-                        // If we're not completely hidden, only fake hiding under keyboard, or already animating,
-                        // then snap us to our final position.
-                        if (this._visible || this._animating) {
-                            // Not resized, update our final position immediately
-                            this._checkScrollPosition();
-                            this._element.style.display = "";
-                        }
-                        this._needToHandleHidingKeyboard = false;
-                    }
-                    // Else resize should clear keyboardHiding.
-                },
-
-                _resize: function AppBar_resize(event) {
-                    // If we're hidden by the keyboard, then hide bottom appbar so it doesn't pop up twice when it scrolls
-                    if (this._needToHandleShowingKeyboard) {
-                        // Top is allowed to scroll off the top, but we don't want bottom to peek up when
-                        // scrolled into view since we'll show it ourselves and don't want a stutter effect.
-                        if (this._visible) {
-                            if (this._placement !== _Constants.appBarPlacementTop && !this._keyboardObscured) {
-                                // If viewport doesn't match window, need to vanish momentarily so it doesn't scroll into view,
-                                // however we don't want to toggle the visibility="hidden" hidden flag.
-                                this._element.style.display = "none";
-                            }
-                        }
-                        // else if we're top we stay, and if there's a flyout, stay obscured by the keyboard.
-                    } else if (this._needToHandleHidingKeyboard) {
-                        this._needToHandleHidingKeyboard = false;
-                        if (this._visible || this._animating) {
-                            // Snap to final position
-                            this._checkScrollPosition();
-                            this._element.style.display = "";
-                        }
-                    }
-
-                    // Make sure everything still fits.
-                    if (!this._initializing) {
-                        this._layout.resize(event);
-                    }
-                },
-
-                _checkKeyboardTimer: function AppBar_checkKeyboardTimer() {
-                    if (!this._scrollHappened) {
-                        this._mayEdgeBackIn();
-                    }
-                },
-
-                _manipulationChanged: function AppBar_manipulationChanged(event) {
-                    // See if we're at the not manipulating state, and we had a scroll happen,
-                    // which is implicitly after the keyboard animated.
-                    if (event.currentState === 0 && this._scrollHappened) {
-                        this._mayEdgeBackIn();
-                    }
-                },
-
-                _mayEdgeBackIn: function AppBar_mayEdgeBackIn() {
-                    // May need to react to IHM being resized event
-                    if (this._needToHandleShowingKeyboard) {
-                        // If not top appbar or viewport isn't still at top, then need to show again
-                        this._needToHandleShowingKeyboard = false;
-                        // If obscured (IHM + flyout showing), it's ok to stay obscured.
-                        // If bottom we have to move, or if top scrolled off screen.
-                        if (!this._keyboardObscured &&
-                            (this._placement !== _Constants.appBarPlacementTop || _Overlay._Overlay._keyboardInfo._visibleDocTop !== 0)) {
-                            var toPosition = this._visiblePosition;
-                            this._lastPositionVisited = displayModeVisiblePositions.hidden;
-                            this._changeVisiblePosition(toPosition, false);
-                        } else {
-                            // Ensure any animations dropped during the showing keyboard are caught up.
-                            this._checkDoNext();
-                        }
-                    }
-                    this._scrollHappened = false;
-                },
-
-                _ensurePosition: function AppBar_ensurePosition() {
-                    // Position the AppBar element relative to the top or bottom edge of the visible
-                    // document, based on the the visible position we think we need to be in.
-                    var offSet = this._computePositionOffset();
-                    this._element.style.bottom = offSet.bottom;
-                    this._element.style.top = offSet.top;
-
-                },
-
-                _computePositionOffset: function AppBar_computePositionOffset() {
-                    // Calculates and returns top and bottom offsets for the AppBar element, relative to the top or bottom edge of the visible
-                    // document.
-                    var positionOffSet = {};
-
-                    if (this._placement === _Constants.appBarPlacementBottom) {
-                        // If the IHM is open, the bottom of the visual viewport may or may not be obscured
-                        // Use _getAdjustedBottom to account for the IHM if it is covering the bottom edge.
-                        positionOffSet.bottom = this._getAdjustedBottom() + "px";
-                        positionOffSet.top = "";
-                    } else if (this._placement === _Constants.appBarPlacementTop) {
-                        positionOffSet.bottom = "";
-                        positionOffSet.top = this._getTopOfVisualViewport() + "px";
-                    }
-
-                    return positionOffSet;
-                },
-
-                _checkScrollPosition: function AppBar_checkScrollPosition() {
-                    // If IHM has appeared, then remember we may come in
-                    if (this._needToHandleShowingKeyboard) {
-                        // Tag that it's OK to edge back in.
-                        this._scrollHappened = true;
-                        return;
-                    }
-
-                    // We only need to update if we're not completely hidden.
-                    if (this._visible || this._animating) {
-                        this._ensurePosition();
-                        // Ensure any animations dropped during the showing keyboard are caught up.
-                        this._checkDoNext();
-                    }
-                },
-
-                _alreadyInPlace: function AppBar_alreadyInPlace() {
-                    // See if we're already where we're supposed to be.
-                    var offSet = this._computePositionOffset();
-                    return (offSet.top === this._element.style.top && offSet.bottom === this._element.style.bottom);
-                },
-
-                // If there is a shown non-sticky AppBar then it sets the firstDiv tabIndex to
-                //   the minimum tabIndex found in the AppBars and finalDiv to the max found.
-                // Otherwise sets their tabIndex to -1 so they are not tab stops.
-                _updateFirstAndFinalDiv: function AppBar_updateFirstAndFinalDiv() {
-                    var appBarFirstDiv = this._element.querySelectorAll("." + _Constants.firstDivClass);
-                    appBarFirstDiv = appBarFirstDiv.length >= 1 ? appBarFirstDiv[0] : null;
-
-                    var appBarFinalDiv = this._element.querySelectorAll("." + _Constants.finalDivClass);
-                    appBarFinalDiv = appBarFinalDiv.length >= 1 ? appBarFinalDiv[0] : null;
-
-                    // Remove the firstDiv & finalDiv if they are not at the appropriate locations
-                    if (appBarFirstDiv && (this._element.children[0] !== appBarFirstDiv)) {
-                        appBarFirstDiv.parentNode.removeChild(appBarFirstDiv);
-                        appBarFirstDiv = null;
-                    }
-                    if (appBarFinalDiv && (this._element.children[this._element.children.length - 1] !== appBarFinalDiv)) {
-                        appBarFinalDiv.parentNode.removeChild(appBarFinalDiv);
-                        appBarFinalDiv = null;
-                    }
-
-                    // Create and add the firstDiv & finalDiv if they don't already exist
-                    if (!appBarFirstDiv) {
-                        // Add a firstDiv that will be the first child of the appBar.
-                        // On focus set focus to the previous appBar.
-                        // The div should only be focusable if there are shown non-sticky AppBars.
-                        appBarFirstDiv = _Global.document.createElement("div");
-                        // display: inline is needed so that the div doesn't take up space and cause the page to scroll on focus
-                        appBarFirstDiv.style.display = "inline";
-                        appBarFirstDiv.className = _Constants.firstDivClass;
-                        appBarFirstDiv.tabIndex = -1;
-                        appBarFirstDiv.setAttribute("aria-hidden", "true");
-                        _ElementUtilities._addEventListener(appBarFirstDiv, "focusin", _setFocusToPreviousAppBar, false);
-                        // add to beginning
-                        if (this._element.children[0]) {
-                            this._element.insertBefore(appBarFirstDiv, this._element.children[0]);
-                        } else {
-                            this._element.appendChild(appBarFirstDiv);
-                        }
-                    }
-                    if (!appBarFinalDiv) {
-                        // Add a finalDiv that will be the last child of the appBar.
-                        // On focus set focus to the next appBar.
-                        // The div should only be focusable if there are shown non-sticky AppBars.
-                        appBarFinalDiv = _Global.document.createElement("div");
-                        // display: inline is needed so that the div doesn't take up space and cause the page to scroll on focus
-                        appBarFinalDiv.style.display = "inline";
-                        appBarFinalDiv.className = _Constants.finalDivClass;
-                        appBarFinalDiv.tabIndex = -1;
-                        appBarFinalDiv.setAttribute("aria-hidden", "true");
-                        _ElementUtilities._addEventListener(appBarFinalDiv, "focusin", _setFocusToNextAppBar, false);
-                        this._element.appendChild(appBarFinalDiv);
-                    }
-
-
-                    // invokeButton should be the second to last element in the AppBar's tab order. Second to the finalDiv.
-                    if (this._element.children[this._element.children.length - 2] !== this._invokeButton) {
-                        this._element.insertBefore(this._invokeButton, appBarFinalDiv);
-                    }
-                    var elms = this._element.getElementsByTagName("*");
-                    var highestTabIndex = _ElementUtilities._getHighestTabIndexInList(elms);
-                    this._invokeButton.tabIndex = highestTabIndex;
-
-                    // Update the tabIndex of the firstDiv & finalDiv
-                    if (_isThereVisibleNonStickyBar()) {
-
-                        if (appBarFirstDiv) {
-                            appBarFirstDiv.tabIndex = _ElementUtilities._getLowestTabIndexInList(elms);
-                        }
-                        if (appBarFinalDiv) {
-                            appBarFinalDiv.tabIndex = highestTabIndex;
-                        }
-                    } else {
-                        if (appBarFirstDiv) {
-                            appBarFirstDiv.tabIndex = -1;
-                        }
-                        if (appBarFinalDiv) {
-                            appBarFinalDiv.tabIndex = -1;
-                        }
-                    }
-                },
-
-                _writeProfilerMark: function AppBar_writeProfilerMark(text) {
-                    _WriteProfilerMark("WinJS.UI.AppBar:" + this._id + ":" + text);
-                }
-            }, {
-                // Statics
-                _appBarsSynchronizationPromise: Promise.as(),
-
-                // Returns true if the element or what had focus before the element (if a Flyout) is either:
-                //   1) the appBar or subtree
-                //   2) OR in a flyout spawned by the appBar
-                // Returns false otherwise.
-                _isWithinAppBarOrChild: function (element, appBar) {
-                    if (!element || !appBar) {
-                        return false;
-                    }
-                    if (appBar.contains(element)) {
-                        return true;
-                    }
-                    var flyout = _Overlay._Overlay._getParentControlUsingClassName(element, _Constants.flyoutClass);
-                    return (flyout && appBar.contains(flyout._previousFocus));
-                },
-
-                // Callback for AppBar invokeButton and Edgy Event Command
-                _toggleAllAppBarsState: function (keyboardInvoked, sourceAppBar) {
-                    var bars = _getDynamicBarsForEdgy();
-
-                    var hiding;
-                    if (sourceAppBar) {
-                        // If the sourceAppBar is shown, hide all AppBars, else show all AppBars.
-                        hiding = _ElementUtilities.hasClass(sourceAppBar._element, _Constants.showingClass) || _ElementUtilities.hasClass(sourceAppBar._element, _Constants.shownClass);
-                    } else {
-                        // EDGY event behavior. No sourceAppBar specified.
-                        // If every AppBar is shown, hide them. Otherwise show them all.
-                        hiding = bars._shown && !bars._hidden;
-                    }
-
-                    if (hiding) {
-                        AppBar._appBarsSynchronizationPromise = AppBar._appBarsSynchronizationPromise.then(function () {
-                            return _Overlay._Overlay._hideAllBars(bars, keyboardInvoked);
-                        });
-                        return "hiding";
-                    } else {
-                        AppBar._appBarsSynchronizationPromise = AppBar._appBarsSynchronizationPromise.then(function () {
-                            return _Overlay._Overlay._showAllBars(bars, keyboardInvoked);
-                        });
-                        return "showing";
-                    }
-                },
-            });
-
-            return AppBar;
-        })
-    });
-
-});
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-// Menu Command
-/// <dictionary>appbar,appbars,Flyout,Flyouts,onclick,Statics</dictionary>
-define('WinJS/Controls/Menu/_Command',[
-    'exports',
-    '../../Core/_Global',
-    '../../Core/_Base',
-    '../../Core/_ErrorFromName',
-    '../../Core/_Resources',
-    '../../Utilities/_Control',
-    '../../Utilities/_ElementUtilities',
-    '../AppBar/_Constants',
-    '../Flyout/_Overlay'
-    ], function menuCommandInit(exports, _Global, _Base, _ErrorFromName, _Resources, _Control, _ElementUtilities, _Constants, _Overlay) {
-    "use strict";
-
-    _Base.Namespace._moduleDefine(exports, "WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.MenuCommand">
-        /// Represents a command to be displayed in a Menu. MenuCommand objects provide button, toggle button, flyout button,
-        /// or separator functionality for Menu controls.
-        /// </summary>
-        /// <compatibleWith platform="Windows" minVersion="8.0"/>
-        /// </field>
-        /// <icon src="ui_winjs.ui.menucommand.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.menucommand.16x16.png" width="16" height="16" />
-        /// <htmlSnippet><![CDATA[<button data-win-control="WinJS.UI.MenuCommand" data-win-options="{type:'button',label:'Button'}"></button>]]></htmlSnippet>
-        /// <part name="MenuCommand" class="win-command" locid="WinJS.UI.MenuCommand_name">The MenuCommand control itself</part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        MenuCommand: _Base.Namespace._lazy(function () {
-
-            function _handleMenuClick(event) {
-                /*jshint validthis: true */
-                var command = this.winControl;
-                if (command) {
-                    var hideParent = true;
-                    if (command._type === _Constants.typeToggle) {
-                        command.selected = !command.selected;
-                    } else if (command._type === _Constants.typeFlyout && command._flyout) {
-                        var flyout = command._flyout;
-                        // Flyout may not have processAll'd, so this may be a DOM object
-                        if (typeof flyout === "string") {
-                            flyout = _Global.document.getElementById(flyout);
-                        }
-                        if (!flyout.show) {
-                            flyout = flyout.winControl;
-                        }
-                        if (flyout && flyout.show) {
-                            if (command._parentFlyout) {
-                                hideParent = false;
-                                flyout.show(command._parentFlyout._currentAnchor, command._parentFlyout._currentPlacement, command._parentFlyout._currentAlignment);
-                            } else {
-                                flyout.show(this);
-                            }
-                        }
-                    }
-                    if (command.onclick) {
-                        command.onclick(event);
-                    }
-                    // Dismiss parent flyout
-                    if (hideParent && command._parentFlyout) {
-                        command._parentFlyout.hide();
-                    }
-                }
-            }
-
-            function _handleMouseOver() {
-                /*jshint validthis: true */
-                if (this && this.focus) {
-                    this.focus();
-
-                    this.addEventListener("mousemove", _handleMouseMove, false);
-                }
-            }
-
-            function _handleMouseMove() {
-                /*jshint validthis: true */
-                if (this && this.focus && this !== _Global.document.activeElement) {
-                    this.focus();
-                }
-            }
-
-            function _handleMouseOut() {
-                /*jshint validthis: true */
-                var that = this;
-                var parentFlyout = _getParentFlyout(that);
-                if (parentFlyout
-                 && this === _Global.document.activeElement
-                 && _ElementUtilities.hasClass(parentFlyout, _Constants.menuClass)
-                 && parentFlyout.focus) {
-                    // Menu gives focus to the menu itself
-                    parentFlyout.focus();
-                } else if (parentFlyout
-                        && this === _Global.document.activeElement
-                        && parentFlyout.children
-                        && parentFlyout.children.length > 0
-                        && parentFlyout.children[0]
-                        && _ElementUtilities.hasClass(parentFlyout.children[0], _Constants.firstDivClass)
-                        && parentFlyout.children[0].focus) {
-                    // Flyout gives focus to firstDiv
-                    parentFlyout.children[0].focus();
-                }
-
-                this.removeEventListener("mousemove", _handleMouseMove, false);
-            }
-
-            function _getParentFlyout(element) {
-                while (element && !_ElementUtilities.hasClass(element, _Constants.flyoutClass)) {
-                    element = element.parentElement;
-                }
-
-                return element;
-            }
-
-            var strings = {
-                get ariaLabel() { return _Resources._getWinJSString("ui/menuCommandAriaLabel").value; },
-                get duplicateConstruction() { return "Invalid argument: Controls may only be instantiated one time for each DOM element"; },
-                get badClick() { return "Invalid argument: The onclick property for an {0} must be a function"; },
-                get badHrElement() { return "Invalid argument: For a separator, the element must be null or an hr element"; },
-                get badButtonElement() { return "Invalid argument: For a button, toggle, or flyout command, the element must be null or a button element"; }
-            };
-
-            return _Base.Class.define(function MenuCommand_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.AppBarCommand.MenuCommand">
-                /// <summary locid="WinJS.UI.MenuCommand.constructor">
-                /// Creates a new MenuCommand object.
-                /// </summary>
-                /// <param name="element" domElement="true" locid="WinJS.UI.MenuCommand.constructor_p:element">
-                /// The DOM element that will host the control.
-                /// </param>
-                /// <param name="options" type="Object" locid="WinJS.UI.MenuCommand.constructor_p:options">
-                /// The set of properties and values to apply to the new MenuCommand.
-                /// </param>
-                /// <returns type="WinJS.UI.MenuCommand" locid="WinJS.UI.MenuCommand.constructor_returnValue">
-                /// A MenuCommand control.
-                /// </returns>
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </signature>
-
-                // Check to make sure we weren't duplicated
-                if (element && element.winControl) {
-                    throw new _ErrorFromName("WinJS.UI.MenuCommand.DuplicateConstruction", strings.duplicateConstruction);
-                }
-
-                this._disposed = false;
-
-                // Don't blow up if they didn't pass options
-                if (!options) {
-                    options = {};
-                }
-
-                // Need a type before we can create our element
-                if (!options.type) {
-                    this._type = _Constants.typeButton;
-                }
-
-                // Go ahead and create it, separator types look different than buttons
-                // Don't forget to use passed in element if one was provided.
-                this._element = element;
-                if (options.type === _Constants.typeSeparator) {
-                    this._createSeparator();
-                } else {
-                    // This will also set the icon & label
-                    this._createButton();
-                }
-                _ElementUtilities.addClass(this._element, "win-disposable");
-
-                // Remember ourselves
-                this._element.winControl = this;
-
-                // Attach our css class
-                _ElementUtilities.addClass(this._element, _Constants.menuCommandClass);
-
-                if (!options.selected && options.type === _Constants.typeToggle) {
-                    // Make sure toggle's have selected false for CSS
-                    this.selected = false;
-                }
-                if (options.onclick) {
-                    this.onclick = options.onclick;
-                }
-                options.onclick = _handleMenuClick;
-
-                _Control.setOptions(this, options);
-
-                // Set our options
-                if (this._type !== _Constants.typeSeparator) {
-                    // Make sure we have an ARIA role
-                    var role = this._element.getAttribute("role");
-                    if (role === null || role === "" || role === undefined) {
-                        role = "menuitem";
-                        if (this._type === _Constants.typeToggle) {
-                            role = "menuitemcheckbox";
-                        }
-                        this._element.setAttribute("role", role);
-                        if (this._type === _Constants.typeFlyout) {
-                            this._element.setAttribute("aria-haspopup", true);
-                        }
-                    }
-                    var label = this._element.getAttribute("aria-label");
-                    if (label === null || label === "" || label === undefined) {
-                        this._element.setAttribute("aria-label", strings.ariaLabel);
-                    }
-                }
-
-                this._element.addEventListener("mouseover", _handleMouseOver, false);
-                this._element.addEventListener("mouseout", _handleMouseOut, false);
-            }, {
-                /// <field type="String" locid="WinJS.UI.MenuCommand.id" helpKeyword="WinJS.UI.MenuCommand.id" isAdvanced="true">
-                /// Gets the  ID of the MenuCommand.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                id: {
-                    get: function () {
-                        return this._element.id;
-                    },
-                    set: function (value) {
-                        // we allow setting first time only. otherwise we ignore it.
-                        if (!this._element.id) {
-                            this._element.id = value;
-                        }
-                    }
-                },
-
-                /// <field type="String" readonly="true" defaultValue="button" oamOptionsDatatype="WinJS.UI.MenuCommand.type" locid="WinJS.UI.MenuCommand.type" helpKeyword="WinJS.UI.MenuCommand.type" isAdvanced="true">
-                /// Gets the type of the MenuCommand. Possible values are "button", "toggle", "flyout", or "separator".
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                type: {
-                    get: function () {
-                        return this._type;
-                    },
-                    set: function (value) {
-                        // we allow setting first time only. otherwise we ignore it.
-                        if (!this._type) {
-                            if (value !== _Constants.typeButton && value !== _Constants.typeFlyout && value !== _Constants.typeToggle && value !== _Constants.typeSeparator) {
-                                this._type = _Constants.typeButton;
-                            } else {
-                                this._type = value;
-                            }
-                        }
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.MenuCommand.label" helpKeyword="WinJS.UI.MenuCommand.label">
-                /// The label of the MenuCommand
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                label: {
-                    get: function () {
-                        return this._label;
-                    },
-                    set: function (value) {
-                        this._label = value;
-                        this._element.textContent = this.label;
-
-                        // Update aria-label
-                        this._element.setAttribute("aria-label", this.label);
-                    }
-                },
-
-                /// <field type="Function" locid="WinJS.UI.MenuCommand.onclick" helpKeyword="WinJS.UI.MenuCommand.onclick">
-                /// Gets or sets the function to invoke when the command is clicked.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                onclick: {
-                    get: function () {
-                        return this._onclick;
-                    },
-                    set: function (value) {
-                        if (value && typeof value !== "function") {
-                            throw new _ErrorFromName("WinJS.UI.MenuCommand.BadClick", _Resources._formatString(strings.badClick, "MenuCommand"));
-                        }
-                        this._onclick = value;
-                    }
-                },
-
-                /// <field type="Object" locid="WinJS.UI.MenuCommand.flyout" helpKeyword="WinJS.UI.MenuCommand.flyout">
-                /// For flyout type MenuCommands, this property  returns the WinJS.UI.Flyout that this command invokes. When setting this property, you can set
-                /// it to the string ID of the Flyout, the DOM object that hosts the Flyout, or the Flyout object itself.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                flyout: {
-                    get: function () {
-                        // Resolve it to the flyout
-                        var flyout = this._flyout;
-                        if (typeof flyout === "string") {
-                            flyout = _Global.document.getElementById(flyout);
-                        }
-                        // If it doesn't have a .element, then we need to getControl on it
-                        if (flyout && !flyout.element) {
-                            flyout = flyout.winControl;
-                        }
-
-                        return flyout;
-                    },
-                    set: function (value) {
-                        // Need to update aria-owns with the new ID.
-                        var id = value;
-                        if (id && typeof id !== "string") {
-                            // Our controls have .element properties
-                            if (id.element) {
-                                id = id.element;
-                            }
-                            // Hope it's a DOM element, get ID from DOM element
-                            if (id) {
-                                if (id.id) {
-                                    id = id.id;
-                                } else {
-                                    // No id, have to fake one
-                                    id.id = _ElementUtilities._uniqueID(id);
-                                    id = id.id;
-                                }
-                            }
-                        }
-                        if (typeof id === "string") {
-                            this._element.setAttribute("aria-owns", id);
-                        }
-
-                        // Remember it
-                        this._flyout = value;
-                    }
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.MenuCommand.selected" helpKeyword="WinJS.UI.MenuCommand.selected">
-                /// Gets or sets the selected state of a toggle button. This property is true if the toggle button is selected; otherwise, it's false.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                selected: {
-                    get: function () {
-                        // Ensure it's a boolean because we're using the DOM element to keep in-sync
-                        return this._element.getAttribute("aria-checked") === "true";
-                    },
-                    set: function (value) {
-                        this._element.setAttribute("aria-checked", !!value);
-                    }
-                },
-
-                /// <field type="HTMLElement" domElement="true" readonly="true" hidden="true" locid="WinJS.UI.MenuCommand.element" helpKeyword="WinJS.UI.MenuCommand.element">
-                /// Gets the DOM element that hosts this MenuCommand.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                element: {
-                    get: function () {
-                        return this._element;
-                    }
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.MenuCommand.disabled" helpKeyword="WinJS.UI.MenuCommand.disabled">
-                /// Gets or sets a value that indicates whether the MenuCommand is disabled. This value is true if the MenuCommand is disabled; otherwise, false.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                disabled: {
-                    get: function () {
-                        // Ensure it's a boolean because we're using the DOM element to keep in-sync
-                        return !!this._element.disabled;
-                    },
-                    set: function (value) {
-                        this._element.disabled = !!value;
-                    }
-                },
-
-                /// <field type="Boolean" hidden="true" locid="WinJS.UI.MenuCommand.hidden" helpKeyword="WinJS.UI.MenuCommand.hidden">
-                /// Determine if a command is currently hidden.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                hidden: {
-                    get: function () {
-                        // Ensure it's a boolean because we're using the DOM element to keep in-sync
-                        return this._element.style.visibility === "hidden";
-                    },
-                    set: function (value) {
-                        var menuControl = _Overlay._Overlay._getParentControlUsingClassName(this._element, _Constants.menuClass);
-                        if (menuControl && !menuControl.hidden) {
-                            throw new _ErrorFromName("WinJS.UI.MenuCommand.CannotChangeHiddenProperty", _Resources._formatString(_Overlay._Overlay.commonstrings.cannotChangeHiddenProperty, "Menu"));
-                        }
-
-                        var style = this._element.style;
-                        if (value) {
-                            style.visibility = "hidden";
-                            style.display = "none";
-                        } else {
-                            style.visibility = "";
-                            style.display = "block";
-                        }
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.MenuCommand.extraClass" isAdvanced="true" helpKeyword="WinJS.UI.MenuCommand.extraClass">
-                /// Gets or sets the extra CSS class that is applied to the host DOM element.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                extraClass: {
-                    get: function () {
-                        return this._extraClass;
-                    },
-                    set: function (value) {
-                        if (this._extraClass) {
-                            _ElementUtilities.removeClass(this._element, this._extraClass);
-                        }
-                        this._extraClass = value;
-                        _ElementUtilities.addClass(this._element, this._extraClass);
-                    }
-                },
-
-
-                dispose: function () {
-                    /// <signature helpKeyword="WinJS.UI.MenuCommand.dispose">
-                    /// <summary locid="WinJS.UI.MenuCommand.dispose">
-                    /// Disposes this control.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                    if (this._disposed) {
-                        return;
-                    }
-                    this._disposed = true;
-
-                    if (this._flyout) {
-                        this._flyout.dispose();
-                    }
-                },
-
-                addEventListener: function (type, listener, useCapture) {
-                    /// <signature helpKeyword="WinJS.UI.MenuCommand.addEventListener">
-                    /// <summary locid="WinJS.UI.MenuCommand.addEventListener">
-                    /// Registers an event handler for the specified event.
-                    /// </summary>
-                    /// <param name="type" type="String" locid="WinJS.UI.MenuCommand.addEventListener_p:type">The name of the event to register.</param>
-                    /// <param name="listener" type="Function" locid="WinJS.UI.MenuCommand.addEventListener_p:listener">The function that handles the event.</param>
-                    /// <param name="useCapture" type="Boolean" locid="WinJS.UI.MenuCommand.addEventListener_p:useCapture">
-                    /// Set to true to register the event handler for the capturing phase; otherwise, set to false to register the  event handler for the bubbling phase.
-                    /// </param>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                    return this._element.addEventListener(type, listener, useCapture);
-                },
-
-                removeEventListener: function (type, listener, useCapture) {
-                    /// <signature helpKeyword="WinJS.UI.MenuCommand.removeEventListener">
-                    /// <summary locid="WinJS.UI.MenuCommand.removeEventListener">
-                    /// Removes the specified event handler that the addEventListener method registered.
-                    /// </summary>
-                    /// <param name="type" type="String" locid="WinJS.UI.MenuCommand.removeEventListener_p:type">The name of the event to remove.</param>
-                    /// <param name="listener" type="Function" locid="WinJS.UI.MenuCommand.removeEventListener_p:listener">The event handler function to remove.</param>
-                    /// <param name="useCapture" type="Boolean" locid="WinJS.UI.MenuCommand.removeEventListener_p:useCapture">
-                    /// Set to true to remove the capturing phase event handler; set to false to remove the bubbling phase event handler.
-                    /// </param>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                    return this._element.removeEventListener(type, listener, useCapture);
-                },
-
-                // Private properties
-                _createSeparator: function MenuCommand_createSeparator() {
-                    // Make sure there's an input element
-                    if (!this._element) {
-                        this._element = _Global.document.createElement("hr");
-                    } else {
-                        // Verify the input was an hr
-                        if (this._element.tagName !== "HR") {
-                            throw new _ErrorFromName("WinJS.UI.MenuCommand.BadHrElement", strings.badHrElement);
-                        }
-                    }
-                },
-
-                _createButton: function MenuCommand_createButton() {
-                    // Make sure there's an input element
-                    if (!this._element) {
-                        this._element = _Global.document.createElement("button");
-                    } else {
-                        // Verify the input was a button
-                        if (this._element.tagName !== "BUTTON") {
-                            throw new _ErrorFromName("WinJS.UI.MenuCommand.BadButtonElement", strings.badButtonElement);
-                        }
-                        this._element.innerHTML = "";
-                    }
-
-                    // MenuCommand buttons need to look like this:
-                    //// <button type="button" onclick="" class="win-command">Command 1</button>
-                    this._element.type = "button";
-
-                    // 'textContent' label is added later by caller
-                }
-            });
-        })
-    });
-
-});
-
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-// Menu
-/// <dictionary>Menu,Menus,Flyout,Flyouts,Statics</dictionary>
-define('WinJS/Controls/Menu',[
-    '../Core/_Global',
-    '../Core/_Base',
-    '../Core/_BaseUtils',
-    '../Core/_ErrorFromName',
-    '../Core/_Resources',
-    '../Core/_WriteProfilerMark',
-    '../Utilities/_ElementUtilities',
-    '../Utilities/_Hoverable',
-    './AppBar/_Constants',
-    './Flyout',
-    './Flyout/_Overlay',
-    './Menu/_Command',
-    'require-style!less/desktop/controls',
-    'require-style!less/phone/controls'
-    ], function menuInit(_Global,_Base, _BaseUtils, _ErrorFromName, _Resources, _WriteProfilerMark, _ElementUtilities, _Hoverable, _Constants, Flyout, _Overlay, _Command) {
-    "use strict";
-
-    _Base.Namespace.define("WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.Menu">Represents a menu flyout for displaying commands.</summary>
-        /// <compatibleWith platform="Windows" minVersion="8.0"/>
-        /// </field>
-        /// <name locid="WinJS.UI.Menu_name">Menu</name>
-        /// <icon src="ui_winjs.ui.menu.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.menu.16x16.png" width="16" height="16" />
-        /// <htmlSnippet supportsContent="true"><![CDATA[<div data-win-control="WinJS.UI.Menu">
-        /// <button data-win-control="WinJS.UI.MenuCommand" data-win-options="{id:'',label:'example',type:'button',onclick:null}"></button>
-        /// </div>]]></htmlSnippet>
-        /// <event name="beforeshow" locid="WinJS.UI.Menu_e:beforeshow">Raised just before showing a menu.</event>
-        /// <event name="aftershow" locid="WinJS.UI.Menu_e:aftershow">Raised immediately after a menu is fully shown.</event>
-        /// <event name="beforehide" locid="WinJS.UI.Menu_e:beforehide">Raised just before hiding a menu.</event>
-        /// <event name="afterhide" locid="WinJS.UI.Menu_e:afterhide">Raised immediately after a menu is fully hidden.</event>
-        /// <part name="menu" class="win-menu" locid="WinJS.UI.Menu_part:menu">The Menu control itself</part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        Menu: _Base.Namespace._lazy(function () {
-            var Key = _ElementUtilities.Key;
-
-            var strings = {
-                get ariaLabel() { return _Resources._getWinJSString("ui/menuAriaLabel").value; },
-                get requiresCommands() { return "Invalid argument: commands must not be empty"; },
-                get nullCommand() { return "Invalid argument: command must not be null"; },
-            };
-
-            var Menu = _Base.Class.derive(Flyout.Flyout, function Menu_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.Menu.Menu">
-                /// <summary locid="WinJS.UI.Menu.constructor">
-                /// Creates a new Menu control.
-                /// </summary>
-                /// <param name="element" type="HTMLElement" domElement="true" locid="WinJS.UI.Menu.constructor_p:element">
-                /// The DOM element that will host the control.
-                /// </param>
-                /// <param name="options" type="Object" domElement="false" locid="WinJS.UI.Menu.constructor_p:options">
-                /// The set of properties and values to apply to the control.
-                /// </param>
-                /// <returns type="WinJS.UI.Menu" locid="WinJS.UI.Menu.constructor_returnValue">The new Menu control.</returns>
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </signature>
-
-                // We need to be built on top of a Flyout, so stomp on the user's input
-                options = options || {};
-
-                // Make sure there's an input element
-                this._element = element || _Global.document.createElement("div");
-                this._id = this._element.id || _ElementUtilities._uniqueID(this._element);
-                this._writeProfilerMark("constructor,StartTM");
-
-                // validate that if they didn't set commands, in which
-                // case any HTML only contains commands.  Do this first
-                // so that we don't leave partial Menus in the DOM.
-                if (!options.commands && this._element) {
-                    // Shallow copy object so we can modify it.
-                    options = _BaseUtils._shallowCopy(options);
-                    options.commands = this._verifyCommandsOnly(this._element, "WinJS.UI.MenuCommand");
-                }
-
-                // Remember aria role in case base constructor changes it
-                var role = this._element ? this._element.getAttribute("role") : null;
-                var label = this._element ? this._element.getAttribute("aria-label") : null;
-
-                // Call the base overlay constructor helper
-                this._baseFlyoutConstructor(this._element, options);
-
-                // Make sure we have an ARIA role
-                if (role === null || role === "" || role === undefined) {
-                    this._element.setAttribute("role", "menu");
-                }
-                if (label === null || label === "" || label === undefined) {
-                    this._element.setAttribute("aria-label", strings.ariaLabel);
-                }
-
-                // Handle "esc" & "up/down" key presses
-                this._element.addEventListener("keydown", this._handleKeyDown, true);
-
-                // Attach our css class
-                _ElementUtilities.addClass(this._element, _Constants.menuClass);
-
-                // Need to set our commands, making sure we're hidden first
-                this.hide();
-                this._writeProfilerMark("constructor,StopTM");
-            }, {
-                // Public Properties
-
-                /// <field type="Array" locid="WinJS.UI.Menu.commands" helpKeyword="WinJS.UI.Menu.commands" isAdvanced="true">
-                /// Sets the MenuCommand objects that appear in the Menu. You can set this to a single MenuCommand or an array of MenuCommand objects.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                commands: {
-                    set: function (value) {
-                        // Fail if trying to set when visible
-                        if (!this.hidden) {
-                            throw new _ErrorFromName("WinJS.UI.Menu.CannotChangeCommandsWhenVisible", _Resources._formatString(_Overlay._Overlay.commonstrings.cannotChangeCommandsWhenVisible, "Menu"));
-                        }
-
-                        // Start from scratch
-                        _ElementUtilities.empty(this._element);
-
-                        // In case they had only one...
-                        if (!Array.isArray(value)) {
-                            value = [value];
-                        }
-
-                        // Add commands
-                        var len = value.length;
-                        for (var i = 0; i < len; i++) {
-                            this._addCommand(value[i]);
-                        }
-                    }
-                },
-
-                getCommandById: function (id) {
-                    /// <signature helpKeyword="WinJS.UI.Menu.getCommandById">
-                    /// <summary locid="WinJS.UI.Menu.getCommandById">
-                    /// Retrieve the command with the specified ID from this Menu.  If more than one command is found, all are returned.
-                    /// </summary>
-                    /// <param name="id" type="String" locid="WinJS.UI.Menu.getCommandById_p:id">The ID of the command to find.</param>
-                    /// <returns type="object" locid="WinJS.UI.Menu.getCommandById_returnValue">
-                    /// The command found, an array of commands if more than one have the same ID, or null if no command is found.
-                    /// </returns>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                    var commands = this.element.querySelectorAll("#" + id);
-                    var newCommands = [];
-                    for (var count = 0, len = commands.length; count < len; count++) {
-                        if (commands[count].winControl) {
-                            newCommands.push(commands[count].winControl);
-                        }
-                    }
-
-                    if (newCommands.length === 1) {
-                        return newCommands[0];
-                    } else if (newCommands.length === 0) {
-                        return null;
-                    }
-
-                    return newCommands;
-                },
-
-
-                showCommands: function (commands) {
-                    /// <signature helpKeyword="WinJS.UI.Menu.showCommands">
-                    /// <summary locid="WinJS.UI.Menu.showCommands">
-                    /// Shows the specified commands of the Menu.
-                    /// </summary>
-                    /// <param name="commands" type="Array" locid="WinJS.UI.Menu.showCommands_p:commands">
-                    /// The commands to show. The array elements may be Menu objects, or the string identifiers (IDs) of commands.
-                    /// </param>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                    if (!commands) {
-                        throw new _ErrorFromName("WinJS.UI.Menu.RequiresCommands", strings.requiresCommands);
-                    }
-
-                    this._showCommands(commands, true);
-                },
-
-                hideCommands: function (commands) {
-                    /// <signature helpKeyword="WinJS.UI.Menu.hideCommands">
-                    /// <summary locid="WinJS.UI.Menu.hideCommands">
-                    /// Hides the Menu.
-                    /// </summary>
-                    /// <param name="commands" type="Array" locid="WinJS.UI.Menu.hideCommands_p:commands">
-                    /// Required. Command or Commands to hide, either String, DOM elements, or WinJS objects.
-                    /// </param>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                    if (!commands) {
-                        throw new _ErrorFromName("WinJS.UI.Menu.RequiresCommands", strings.requiresCommands);
-                    }
-
-                    this._hideCommands(commands, true);
-                },
-
-                showOnlyCommands: function (commands) {
-                    /// <signature helpKeyword="WinJS.UI.Menu.showOnlyCommands">
-                    /// <summary locid="WinJS.UI.Menu.showOnlyCommands">
-                    /// Shows the specified commands of the Menu while hiding all other commands.
-                    /// </summary>
-                    /// <param name="commands" type="Array" locid="WinJS.UI.Menu.showOnlyCommands_p:commands">
-                    /// The commands to show. The array elements may be MenuCommand objects, or the string identifiers (IDs) of commands.
-                    /// </param>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                    if (!commands) {
-                        throw new _ErrorFromName("WinJS.UI.Menu.RequiresCommands", strings.requiresCommands);
-                    }
-
-                    this._showOnlyCommands(commands, true);
-                },
-
-                show: function (anchor, placement, alignment) {
-                    /// <signature helpKeyword="WinJS.UI.Menu.show">
-                    /// <summary locid="WinJS.UI.Menu.show">
-                    /// Shows the Menu, if hidden, regardless of other states.
-                    /// </summary>
-                    /// <param name="anchor" type="HTMLElement" domElement="true" locid="WinJS.UI.Menu.show_p:anchor">
-                    /// The DOM element, or ID of a DOM element,  to anchor the Menu. This parameter overrides the anchor property for this method call only.
-                    /// </param>
-                    /// <param name="placement" type="object" domElement="false" locid="WinJS.UI.Menu.show_p:placement">
-                    /// The placement of the Menu to the anchor: 'auto' (default), 'top', 'bottom', 'left', or 'right'. This parameter overrides the placement
-                    /// property for this method call only.
-                    /// </param>
-                    /// <param name="alignment" type="object" domElement="false" locid="WinJS.UI.Menu.show_p:alignment">
-                    /// For 'top' or 'bottom' placement, the alignment of the Menu to the anchor's edge: 'center' (default), 'left', or 'right'. This parameter
-                    /// overrides the alignment property for this method call only.
-                    /// </param>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                    // Just call private version to make appbar flags happy
-                    this._writeProfilerMark("show,StartTM"); // The corresponding "stop" profiler mark is handled in _Overlay._baseEndShow().
-                    this._show(anchor, placement, alignment);
-                },
-
-                _show: function Menu_show(anchor, placement, alignment) {
-                    // Before we show, we also need to check for children flyouts needing anchors
-                    this._checkForFlyoutCommands();
-
-                    // Call flyout show
-                    this._baseFlyoutShow(anchor, placement, alignment);
-
-                    // We need to check for toggles after we send the beforeshow event,
-                    // so the developer has a chance to show or hide more commands.
-                    // Flyout's _findPosition will make that call.
-                },
-
-                _addCommand: function Menu_addCommand(command) {
-                    if (!command) {
-                        throw new _ErrorFromName("WinJS.UI.Menu.NullCommand", strings.nullCommand);
-                    }
-                    // See if it's a command already
-                    if (!command._element) {
-                        // Not a command, so assume it's options for a command
-                        command = new _Command.MenuCommand(null, command);
-                    }
-                    // If we were attached somewhere else, detach us
-                    if (command._element.parentElement) {
-                        command._element.parentElement.removeChild(command._element);
-                    }
-
-                    // Reattach us
-                    this._element.appendChild(command._element);
-                },
-
-                // Called by flyout's _findPosition so that application can update it status
-                // we do the test and we can then fix this last-minute before showing.
-                _checkToggle: function Menu_checkToggle() {
-                    var toggles = this._element.querySelectorAll(".win-command[aria-checked]");
-                    var hasToggle = false;
-                    if (toggles) {
-                        for (var i = 0; i < toggles.length; i++) {
-                            if (toggles[i] && toggles[i].winControl && !toggles[i].winControl.hidden) {
-                                // Found a visible toggle control
-                                hasToggle = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (hasToggle) {
-                        _ElementUtilities.addClass(this._element, _Constants.menuToggleClass);
-                    } else {
-                        _ElementUtilities.removeClass(this._element, _Constants.menuToggleClass);
-                    }
-                },
-
-                _checkForFlyoutCommands: function Menu_checkForFlyoutCommands() {
-                    var commands = this._element.querySelectorAll(".win-command");
-                    for (var count = 0; count < commands.length; count++) {
-                        if (commands[count].winControl) {
-                            // Remember our anchor in case it's a flyout
-                            commands[count].winControl._parentFlyout = this;
-                        }
-                    }
-                },
-
-                _handleKeyDown: function Menu_handleKeyDown(event) {
-                    var that = this;
-                    if (event.keyCode === Key.escape) {
-                        // Show a focus rect on what we move focus to
-                        this.winControl._keyboardInvoked = true;
-                        this.winControl._hide();
-                    } else if ((event.keyCode === Key.space || event.keyCode === Key.enter)
-                           && (this === _Global.document.activeElement)) {
-                        event.preventDefault();
-                        this.winControl.hide();
-                    } else if (event.keyCode === Key.upArrow) {
-                        Menu._focusOnPreviousElement(that);
-
-                        // Prevent the page from scrolling
-                        event.preventDefault();
-                    } else if (event.keyCode === Key.downArrow) {
-                        Menu._focusOnNextElement(that);
-
-                        // Prevent the page from scrolling
-                        event.preventDefault();
-                    } else if (event.keyCode === Key.tab) {
-                        event.preventDefault();
-                    }
-                },
-
-                _writeProfilerMark: function Menu_writeProfilerMark(text) {
-                    _WriteProfilerMark("WinJS.UI.Menu:" + this._id + ":" + text);
-                }
-            });
-
-            // Statics
-
-            // Set focus to next focusable element in the menu (loop if necessary).
-            //   Note: The loop works by first setting focus to the menu itself.  If the menu is
-            //         what had focus before, then we break.  Otherwise we try the first child next.
-            // Focus remains on the menu if nothing is focusable.
-            Menu._focusOnNextElement = function (menu) {
-                var _currentElement = _Global.document.activeElement;
-
-                do {
-                    if (_currentElement === menu) {
-                        _currentElement = _currentElement.firstElementChild;
-                    } else {
-                        _currentElement = _currentElement.nextElementSibling;
-                    }
-
-                    if (_currentElement) {
-                        _currentElement.focus();
-                    } else {
-                        _currentElement = menu;
-                    }
-
-                } while (_currentElement !== _Global.document.activeElement);
-            };
-
-            // Set focus to previous focusable element in the menu (loop if necessary).
-            //   Note: The loop works by first setting focus to the menu itself.  If the menu is
-            //         what had focus before, then we break.  Otherwise we try the last child next.
-            // Focus remains on the menu if nothing is focusable.
-            Menu._focusOnPreviousElement = function (menu) {
-                var _currentElement = _Global.document.activeElement;
-
-                do {
-                    if (_currentElement === menu) {
-                        _currentElement = _currentElement.lastElementChild;
-                    } else {
-                        _currentElement = _currentElement.previousElementSibling;
-                    }
-
-                    if (_currentElement) {
-                        _currentElement.focus();
-                    } else {
-                        _currentElement = menu;
-                    }
-
-                } while (_currentElement !== _Global.document.activeElement);
-            };
-
-            return Menu;
-        })
-    });
-
-});
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('WinJS/Controls/SearchBox/_SearchSuggestionManagerShim',[
-    'exports',
-    '../../_Signal',
-    '../../Core/_Base',
-    '../../Core/_BaseUtils',
-    '../../Core/_Events',
-    '../../BindingList',
-], function SearchSuggestionManagerShimInit(exports, _Signal, _Base, _BaseUtils, _Events, BindingList) {
-    "use strict";
-
-    var CollectionChange = {
-        reset: 0,
-        itemInserted: 1,
-        itemRemoved: 2,
-        itemChanged: 3
-    };
-    var SearchSuggestionKind = {
-        Query: 0,
-        Result: 1,
-        Separator: 2
-    };
-
-    var SuggestionVectorShim = _Base.Class.derive(Array, function SuggestionVectorShim_ctor() {
-    }, {
-        reset: function () {
-            this.length = 0;
-            this.dispatchEvent("vectorchanged", { collectionChange: CollectionChange.reset, index: 0 });
-        },
-
-        insert: function (index, data) {
-            this.splice(index, 0, data);
-            this.dispatchEvent("vectorchanged", { collectionChange: CollectionChange.itemInserted, index: index });
-        },
-
-        remove: function (index) {
-            this.splice(index, 1);
-            this.dispatchEvent("vectorchanged", { collectionChange: CollectionChange.itemRemoved, index: index });
-        },
-    });
-    _Base.Class.mix(SuggestionVectorShim, _Events.eventMixin);
-
-    var SearchSuggestionCollectionShim = _Base.Class.define(function SearchSuggestionCollectionShim_ctor() {
-        this._data = [];
-    }, {
-        size: {
-            get: function () {
-                return this._data.length;
-            }
-        },
-
-        appendQuerySuggestion: function (text) {
-            this._data.push({ kind: SearchSuggestionKind.Query, text: text });
-        },
-        appendQuerySuggestions: function (suggestions) {
-            suggestions.forEach(this.appendQuerySuggestion.bind(this));
-        },
-        appendResultSuggestion: function (text, detailText, tag, imageUrl, imageAlternateText) {
-            // 'image' must be null (not undefined) for SearchBox to fallback to use imageUrl instead
-            this._data.push({ kind: SearchSuggestionKind.Result, text: text, detailText: detailText, tag: tag, imageUrl: imageUrl, imageAlternateText: imageAlternateText, image: null });
-        },
-        appendSearchSeparator: function (label) {
-            this._data.push({ kind: SearchSuggestionKind.Separator, text: label });
-        }
-    });
-
-    var SuggestionsRequestedEventArgShim = _Base.Class.define(function SuggestionsRequestedEventArgShim_ctor(queryText, language, linguisticDetails) {
-        this._queryText = queryText;
-        this._language = language;
-        this._linguisticDetails = linguisticDetails;
-        this._searchSuggestionCollection = new SearchSuggestionCollectionShim();
-    }, {
-        language: {
-            get: function () {
-                return this._language;
-            }
-        },
-        linguisticDetails: {
-            get: function () {
-                return this._linguisticDetails;
-            }
-        },
-        queryText: {
-            get: function () {
-                return this._queryText;
-            }
-        },
-        searchSuggestionCollection: {
-            get: function () {
-                return this._searchSuggestionCollection;
-            }
-        },
-        getDeferral: function () {
-            return this._deferralSignal || (this._deferralSignal = new _Signal());
-        },
-
-        _deferralSignal: null,
-    });
-
-    var SearchSuggestionManagerShim = _Base.Class.define(function SearchSuggestionManagerShim_ctor() {
-        this._updateVector = this._updateVector.bind(this);
-
-        this._suggestionVector = new SuggestionVectorShim();
-        this._query = "";
-        this._history = { "": [] };
-
-        this._dataSource = [];
-
-        this.searchHistoryContext = "";
-        this.searchHistoryEnabled = true;
-    }, {
-        addToHistory: function (queryText /*, language */) {
-            if (!queryText || !queryText.trim()) {
-                return;
-            }
-
-            var history = this._history[this.searchHistoryContext];
-            var dupeIndex = -1;
-            for (var i = 0, l = history.length; i < l; i++) {
-                var item = history[i];
-                if (item.text.toLowerCase() === queryText.toLowerCase()) {
-                    dupeIndex = i;
-                    break;
-                }
-            }
-            if (dupeIndex >= 0) {
-                history.splice(dupeIndex, 1);
-            }
-
-            history.splice(0, 0, { text: queryText, kind: SearchSuggestionKind.Query });
-            this._updateVector();
-        },
-
-        clearHistory: function () {
-            this._history[this.searchHistoryContext] = [];
-            this._updateVector();
-        },
-
-        setLocalContentSuggestionSettings: function (settings) {
-        },
-
-        setQuery: function (queryText) {
-            var that = this;
-            function update(arr) {
-                that._dataSource = arr;
-                that._updateVector();
-            }
-
-            this._query = queryText;
-            var arg = new SuggestionsRequestedEventArgShim(queryText);
-            this.dispatchEvent("suggestionsrequested", { request: arg });
-            if (arg._deferralSignal) {
-                arg._deferralSignal.promise.then(update.bind(this, arg.searchSuggestionCollection._data));
-            } else {
-                update(arg.searchSuggestionCollection._data);
-            }
-        },
-
-        searchHistoryContext: {
-            get: function () {
-                return "" + this._searchHistoryContext;
-            },
-            set: function (value) {
-                value = "" + value;
-                if (!this._history[value]) {
-                    this._history[value] = [];
-                }
-                this._searchHistoryContext = value;
-            }
-        },
-
-        searchHistoryEnabled: {
-            get: function () {
-                return this._searchHistoryEnabled;
-            },
-            set: function (value) {
-                this._searchHistoryEnabled = value;
-            }
-        },
-
-        suggestions: {
-            get: function () {
-                return this._suggestionVector;
-            }
-        },
-
-        _updateVector: function () {
-            // Can never clear the entire suggestions list or it will cause a visual flash because
-            // the SearchBox control removes the suggestions list UI when the SSM fires vectorChanged
-            // with size === 0, then re-renders it when the first suggestion is added.
-            // Workaround is to insert a dummy entry, remove all old entries, add the new set of
-            // eligible suggestions, then remove the dummy entry.
-            this.suggestions.insert(this.suggestions.length, { text: "", kind: SearchSuggestionKind.Query });
-
-            while (this.suggestions.length > 1) {
-                this.suggestions.remove(0);
-            }
-
-            var index = 0;
-            var added = {};
-            if (this.searchHistoryEnabled) {
-                var q = this._query.toLowerCase();
-                this._history[this.searchHistoryContext].forEach(function (item) {
-                    var text = item.text.toLowerCase();
-                    if (text.indexOf(q) === 0) {
-                        this.suggestions.insert(index, item);
-                        added[text] = true;
-                        index++;
-                    }
-                }, this);
-            }
-            this._dataSource.forEach(function (item) {
-                if (item.kind === SearchSuggestionKind.Query) {
-                    if (!added[item.text.toLowerCase()]) {
-                        this.suggestions.insert(index, item);
-                        index++;
-                    }
-                } else {
-                    this.suggestions.insert(index, item);
-                    index++;
-                }
-            }, this);
-
-            this.suggestions.remove(this.suggestions.length - 1);
-        },
-    });
-    _Base.Class.mix(SearchSuggestionManagerShim, _Events.eventMixin);
-
-    _Base.Namespace._moduleDefine(exports, null, {
-        _CollectionChange: CollectionChange,
-        _SearchSuggestionKind: SearchSuggestionKind,
-        _SearchSuggestionManagerShim: SearchSuggestionManagerShim,
-    });
-});
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('WinJS/Controls/SearchBox',[
-    '../Core/_Global',
-    '../Core/_WinRT',
-    '../Core/_Base',
-    '../Core/_ErrorFromName',
-    '../Core/_Events',
-    '../Core/_Resources',
-    '../Animations',
-    '../BindingList',
-    '../Controls/Repeater',
-    '../Utilities/_Control',
-    '../Utilities/_ElementListUtilities',
-    '../Utilities/_ElementUtilities',
-    '../Utilities/_Hoverable',
-    './SearchBox/_SearchSuggestionManagerShim',
-    'require-style!less/desktop/controls',
-    'require-style!less/phone/controls',
-], function searchboxInit(_Global, _WinRT, _Base, _ErrorFromName, _Events, _Resources, Animations, BindingList, Repeater, _Control, _ElementListUtilities, _ElementUtilities, _Hoverable, _SearchSuggestionManagerShim) {
-    "use strict";
-
-    _Base.Namespace.define("WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.SearchBox">
-        /// Enables the user to perform search queries and select suggestions.
-        /// </summary>
-        /// <compatibleWith platform="Windows" minVersion="8.1"/>
-        /// </field>
-        /// <icon src="ui_winjs.ui.search.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.search.16x16.png" width="16" height="16" />
-        /// <htmlSnippet><![CDATA[<div data-win-control="WinJS.UI.SearchBox"></div>]]></htmlSnippet>
-        /// <event name="querychanged" bubbles="true" locid="WinJS.UI.SearchBox_e:querychanged">Raised when user or app changes the query text.</event>
-        /// <event name="querysubmitted" bubbles="true" locid="WinJS.UI.SearchBox_e:querysubmitted">Raised when user clicks on search glyph or presses Enter.</event>
-        /// <event name="resultsuggestionchosen" bubbles="true" locid="WinJS.UI.SearchBox_e:resultsuggestionchosen">Raised when user clicks  one of the displayed suggestions.</event>
-        /// <event name="suggestionsrequested" bubbles="true" locid="WinJS.UI.SearchBox_e:suggestionsrequested">Raised when the system requests search suggestions from this app.</event>
-        /// <event name="receivingfocusonkeyboardinput" bubbles="true" locid="WinJS.UI.SearchBox_e:receivingfocusonkeyboardinput">
-        /// Raised when the app automatically redirects focus to the search box. This event can only be raised when the focusOnKeyboardInput property is set to true.
-        /// </event>
-        /// <part name="searchbox" class="win-searchbox" locid="WinJS.UI.SearchBox:search">Styles the entire Search box control.</part>
-        /// <part name="searchbox-input" class="win-searchbox-input" locid="WinJS.UI.SearchBox_part:Input">Styles the query input box.</part>
-        /// <part name="searchbox-button" class="win-searchbox-button" locid="WinJS.UI.SearchBox_part:Button">Styles the search button.</part>
-        /// <part name="searchbox-flyout" class="win-searchbox-flyout" locid="WinJS.UI.SearchBox_part:Flyout">Styles the result suggestions flyout.</part>
-        /// <part name="searchbox-suggestion-result" class="win-searchbox-suggestion-result" locid="WinJS.UI.SearchBox_part:Suggestion_Result">Styles the result type suggestion.</part>
-        /// <part name="searchbox-suggestion-query" class="win-searchbox-suggestion-query" locid="WinJS.UI.SearchBox_part:Suggestion_Query">Styles the query type suggestion.</part>
-        /// <part name="searchbox-suggestion-separator" class="win-searchbox-suggestion-separator" locid="WinJS.UI.SearchBox_part:Suggestion_Separator">
-        /// Styles the separator type suggestion.
-        /// </part>
-        /// <part name="searchbox-suggestion-selected" class="win-searchbox-suggestion-selected" locid="WinJS.UI.SearchBox_part:Suggestion_Selected">
-        /// Styles the currently selected suggestion.
-        /// </part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        SearchBox: _Base.Namespace._lazy(function () {
-            var createEvent = _Events._createEventProperty;
-            var Key = _ElementUtilities.Key;
-
-            // Enums
-            var ClassName = {
-                searchBox: "win-searchbox",
-                searchBoxInput: "win-searchbox-input",
-                searchBoxButton: "win-searchbox-button",
-                searchBoxFlyout: "win-searchbox-flyout",
-                searchBoxSuggestionResult: "win-searchbox-suggestion-result",
-                searchBoxSuggestionQuery: "win-searchbox-suggestion-query",
-                searchBoxSuggestionSeparator: "win-searchbox-suggestion-separator",
-                searchBoxSuggestionSelected: "win-searchbox-suggestion-selected",
-                searchBoxFlyoutHighlightText: "win-searchbox-flyout-highlighttext",
-                searchBoxButtonInputFocus: "win-searchbox-button-input-focus",
-                searchBoxInputFocus: "win-searchbox-input-focus",
-                searchBoxSuggestionResultText: "win-searchbox-suggestion-result-text",
-                searchBoxSuggestionResultDetailedText: "win-searchbox-suggestion-result-detailed-text",
-                searchboxDisabled: "win-searchbox-disabled",
-                searchboxHitHighlightSpan: "win-searchbox-hithighlight-span",
-            };
-
-            var EventName = {
-                querychanged: "querychanged",
-                querysubmitted: "querysubmitted",
-                resultsuggestionchosen: "resultsuggestionchosen",
-                suggestionsrequested: "suggestionsrequested",
-                receivingfocusonkeyboardinput: "receivingfocusonkeyboardinput"
-            };
-
-            var strings = {
-                get duplicateConstruction() { return "Invalid argument: Controls may only be instantiated one time for each DOM element"; },
-                get invalidSearchBoxSuggestionKind() { return "Error: Invalid search suggestion kind."; },
-                get ariaLabel() { return _Resources._getWinJSString("ui/searchBoxAriaLabel").value; },
-                get ariaLabelInputNoPlaceHolder() { return _Resources._getWinJSString("ui/searchBoxAriaLabelInputNoPlaceHolder").value; },
-                get ariaLabelInputPlaceHolder() { return _Resources._getWinJSString("ui/searchBoxAriaLabelInputPlaceHolder").value; },
-                get ariaLabelButton() { return _Resources._getWinJSString("ui/searchBoxAriaLabelButton").value; },
-                get ariaLabelQuery() { return _Resources._getWinJSString("ui/searchBoxAriaLabelQuery").value; },
-                get ariaLabelSeparator() { return _Resources._getWinJSString("ui/searchBoxAriaLabelSeparator").value; },
-                get ariaLabelResult() { return _Resources._getWinJSString("ui/searchBoxAriaLabelResult").value; }
-            };
-
-            var SearchBox = _Base.Class.define(function SearchBox_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.SearchBox.SearchBox">
-                /// <summary locid="WinJS.UI.SearchBox.constructor">
-                /// Creates a new SearchBox.
-                /// </summary>
-                /// <param name="element" domElement="true" locid="WinJS.UI.SearchBox.constructor_p:element">
-                /// The DOM element that hosts the SearchBox.
-                /// </param>
-                /// <param name="options" type="Object" locid="WinJS.UI.SearchControl.constructor_p:options">
-                /// An object that contains one or more property/value pairs to apply to the new control.
-                /// Each property of the options object corresponds to one of the control's properties or events.
-                /// Event names must begin with "on". For example, to provide a handler for the querychanged event,
-                /// add a property named "onquerychanged" to the options object and set its value to the event handler.
-                /// This parameter is optional.
-                /// </param>
-                /// <returns type="WinJS.UI.SearchBox" locid="WinJS.UI.SearchBox.constructor_returnValue">
-                /// The new SearchBox.
-                /// </returns>
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </signature>
-
-                element = element || _Global.document.createElement("div");
-
-                if (element.winControl) {
-                    throw new _ErrorFromName("WinJS.UI.SearchBox.DuplicateConstruction", strings.duplicateConstruction);
-                }
-                element.winControl = this;
-
-                // Elements
-                this._domElement = null;
-                this._inputElement = null;
-                this._buttonElement = null;
-                this._flyout = null;
-                this._flyoutDivElement = null;
-                this._repeaterDivElement = null;
-                this._repeater = null;
-
-                // Variables
-                this._disposed = false;
-                this._focusOnKeyboardInput = false;
-                this._chooseSuggestionOnEnter = false;
-                this._lastKeyPressLanguage = "";
-
-                // These are used to eliminate redundant query submitted events
-                this._prevQueryText = "";
-                this._prevLinguisticDetails = this._createSearchQueryLinguisticDetails([], 0, 0, "", "");
-                this._prevCompositionStart = 0;
-                this._prevCompositionLength = 0;
-                this._isProcessingDownKey = false;
-                this._isProcessingUpKey = false;
-                this._isProcessingTabKey = false;
-                this._isProcessingEnterKey = false;
-                this._isFlyoutPointerDown = false;
-                this._reflowImeOnPointerRelease = false;
-
-                // Focus and selection related variables
-                this._currentFocusedIndex = -1;
-                this._currentSelectedIndex = -1;
-
-                this._suggestionRendererBind = this._suggestionRenderer.bind(this);
-                this._requestingFocusOnKeyboardInputHandlerBind = this._requestingFocusOnKeyboardInputHandler.bind(this);
-                this._suggestionsRequestedHandlerBind = this._suggestionsRequestedHandler.bind(this);
-                this._suggestionsChangedHandlerBind = this._suggestionsChangedHandler.bind(this);
-                this._keydownCaptureHandlerBind = this._keydownCaptureHandler.bind(this);
-                this._frameLoadCaptureHandlerBind = this._frameLoadCaptureHandler.bind(this);
-
-                // Find out if we are in local compartment and if search APIs are available.
-                this._searchSuggestionManager = null;
-                this._searchSuggestions = null;
-
-                // Get the search suggestion provider if it is available
-                if (_WinRT.Windows.ApplicationModel.Search.Core.SearchSuggestionManager) {
-                    this._searchSuggestionManager = new _WinRT.Windows.ApplicationModel.Search.Core.SearchSuggestionManager();
-                } else {
-                    this._searchSuggestionManager = new _SearchSuggestionManagerShim._SearchSuggestionManagerShim();
-                }
-                this._searchSuggestions = this._searchSuggestionManager.suggestions;
-
-                this._hitFinder = null;
-                this._setElement(element);
-                _Control.setOptions(this, options);
-                this._setAccessibilityProperties();
-                _ElementUtilities.addClass(element, "win-disposable");
-            }, {
-
-                /// <field type='HTMLElement' domElement='true' hidden='true' locid="WinJS.UI.SearchBox.element" helpKeyword="WinJS.UI.SearchBox.element">
-                /// The DOM element that hosts the SearchBox.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                element: {
-                    get: function () {
-                        return this._domElement;
-                    }
-                },
-
-                /// <field type='String' locid="WinJS.UI.SearchBox.placeholderText" helpKeyword="WinJS.UI.SearchBox.placeholderText">
-                /// Gets or sets the placeholder text for the SearchBox. This text is displayed if there is no
-                /// other text in the input box.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                placeholderText: {
-                    get: function () {
-                        return this._inputElement.placeholder;
-                    },
-                    set: function (value) {
-                        this._inputElement.placeholder = value;
-                        this._updateInputElementAriaLabel();
-                    }
-                },
-
-                /// <field type='String' locid="WinJS.UI.SearchBox.queryText" helpKeyword="WinJS.UI.SearchBox.queryText">
-                /// Gets or sets the query text for the SearchBox.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                queryText: {
-                    get: function () {
-                        return this._inputElement.value;
-                    },
-                    set: function (value) {
-                        this._inputElement.value = value;
-                    }
-                },
-
-                /// <field type='bool' locid="WinJS.UI.SearchBox.searchHistoryDisabled" helpKeyword="WinJS.UI.SearchBox.searchHistoryDisabled">
-                /// Gets or sets a value that specifies whether search history is disabled for the SearchBox. The default value is false.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                searchHistoryDisabled: {
-                    get: function () {
-                        if (this._searchSuggestionManager) {
-                            return !this._searchSuggestionManager.searchHistoryEnabled;
-                        } else {
-                            return true;
-                        }
-                    },
-                    set: function (value) {
-                        if (this._searchSuggestionManager) {
-                            this._searchSuggestionManager.searchHistoryEnabled = !value;
-                        }
-                    }
-                },
-
-                /// <field type='String' locid="WinJS.UI.SearchBox.searchHistoryContext" helpKeyword="WinJS.UI.SearchBox.searchHistoryContext">
-                /// Gets or sets the search history context for the SearchBox. The search history context string is used as a secondary key for storing search history.
-                /// (The primary key is the AppId.) An app can use the search history context string to store different search histories based on the context of the application.
-                /// If you don't set this property, the system assumes that all searches in your app occur in the same context.
-                /// If you update this property while the search pane is open with suggestions showing, the changes won't take effect until the user enters the next character.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                searchHistoryContext: {
-                    get: function () {
-                        if (this._searchSuggestionManager) {
-                            return this._searchSuggestionManager.searchHistoryContext;
-                        } else {
-                            return "";
-                        }
-                    },
-                    set: function (value) {
-                        if (this._searchSuggestionManager) {
-                            this._searchSuggestionManager.searchHistoryContext = value;
-                        }
-                    }
-                },
-
-                /// <field type='String' locid="WinJS.UI.SearchBox.focusOnKeyboardInput" helpKeyword="WinJS.UI.SearchBox.focusOnKeyboardInput">
-                /// Enable automatically focusing the search box when the user types into the app window (off by default) While this is enabled,
-                /// input on the current thread will be intercepted and redirected to the search box. Only textual input will trigger the search box to focus.
-                /// The caller will continue to receive non-text keys (such as arrows, tab, etc
-                /// This will also not affect WIN/CTRL/ALT key combinations (except for Ctrl-V for paste).
-                /// If the client needs more to happen than just set focus in the box (make control visible, etc.), they will need to handle the event.
-                /// If enabled, the app must be sure to disable this if the user puts focus in some other edit field.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                focusOnKeyboardInput: {
-                    get: function () {
-                        return this._focusOnKeyboardInput;
-                    },
-                    set: function (value) {
-                        if (this._focusOnKeyboardInput && !value) {
-                            if (!(this._searchSuggestionManager instanceof _SearchSuggestionManagerShim._SearchSuggestionManagerShim)) {
-                                this._searchSuggestionManager.removeEventListener("requestingfocusonkeyboardinput", this._requestingFocusOnKeyboardInputHandlerBind);
-                            } else {
-                                this._updateKeydownCaptureListeners(_Global.top, false /*add*/);
-                            }
-
-                        } else if (!this._focusOnKeyboardInput && !!value) {
-                            if (!(this._searchSuggestionManager instanceof _SearchSuggestionManagerShim._SearchSuggestionManagerShim)) {
-                                this._searchSuggestionManager.addEventListener("requestingfocusonkeyboardinput", this._requestingFocusOnKeyboardInputHandlerBind);
-                            } else {
-                                this._updateKeydownCaptureListeners(_Global.top, true /*add*/);
-                            }
-
-                        }
-                        this._focusOnKeyboardInput = !!value;
-                    }
-                },
-
-                /// <field type='String' locid="WinJS.UI.SearchBox.chooseSuggestionOnEnter" helpKeyword="WinJS.UI.SearchBox.chooseSuggestionOnEnter">
-                /// Gets or sets whether the first suggestion is chosen when the user presses Enter.
-                /// When set to true, as the user types in the search box, a focus rectangle is drawn on the first search suggestion
-                /// (if present and no IME composition in progress).  Pressing enter will behave the same as if clicked on the focused suggestion,
-                /// and the down arrow key press will put real focus to the second suggestion and the up arrow key will remove focus.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                chooseSuggestionOnEnter: {
-                    get: function () {
-                        return this._chooseSuggestionOnEnter;
-                    },
-                    set: function (value) {
-                        this._chooseSuggestionOnEnter = !!value;
-                        this._updateSearchButtonClass();
-                    }
-                },
-
-                /// <field type='bool' locid="WinJS.UI.SearchBox.disabled" helpKeyword="WinJS.UI.SearchBox.disabled">
-                /// Gets or sets a value that specifies whether the SearchBox is disabled.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                disabled: {
-                    get: function () {
-                        return this._inputElement.disabled;
-                    },
-                    set: function (value) {
-                        if (this._inputElement.disabled === !!value) {
-                            return;
-                        }
-
-                        if (!value) {
-                            // Enable control
-                            this._inputElement.disabled = false;
-                            this._buttonElement.disabled = false;
-                            this._domElement.disabled = false;
-                            _ElementUtilities.removeClass(this.element, ClassName.searchboxDisabled);
-                            if (_Global.document.activeElement === this.element) {
-                                _ElementUtilities._setActive(this._inputElement);
-                            }
-                        } else {
-                            // Disable control
-                            if (this._isFlyoutShown) {
-                                this._hideFlyout();
-                            }
-                            _ElementUtilities.addClass(this.element, ClassName.searchboxDisabled);
-                            this._inputElement.disabled = true;
-                            this._buttonElement.disabled = true;
-                            this._domElement.disabled = true;
-                        }
-                    }
-                },
-
-                // Methods
-                setLocalContentSuggestionSettings: function SearchBox_setLocalContentSuggestionSettings(settings) {
-                    /// <signature helpKeyword="WinJS.UI.SearchBox.SetLocalContentSuggestionSettings">
-                    /// <summary locid="WinJS.UI.SearchBox.SetLocalContentSuggestionSettings">
-                    /// Specifies whether suggestions based on local files are automatically displayed in the search pane, and defines the criteria that
-                    /// the system uses to locate and filter these suggestions.
-                    /// </summary>
-                    /// <param name="eventName" type="Windows.ApplicationModel.Search. LocalContentSuggestionSettings" locid="WinJS.UI.SearchBox.setLocalContentSuggestionSettings_p:settings">
-                    /// The new settings for local content suggestions.
-                    /// </param>
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </signature>
-                    if (this._searchSuggestionManager) {
-                        this._searchSuggestionManager.setLocalContentSuggestionSettings(settings);
-                    }
-                },
-
-                dispose: function SearchBox() {
-                    /// <signature helpKeyword="WinJS.UI.SearchBox.dispose">
-                    /// <summary locid="WinJS.UI.SearchBox.dispose">
-                    /// Disposes this control.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </signature>
-                    if (this._disposed) {
-                        return;
-                    }
-
-                    // Cancel pending promises.
-                    if (this._flyoutOpenPromise) {
-                        this._flyoutOpenPromise.cancel();
-                    }
-
-                    // Detach winrt events.
-                    if (this._focusOnKeyboardInput) {
-                        if (!(this._searchSuggestionManager instanceof _SearchSuggestionManagerShim._SearchSuggestionManagerShim)) {
-                            this._searchSuggestionManager.removeEventListener("requestingfocusonkeyboardinput", this._requestingFocusOnKeyboardInputHandlerBind);
-                        } else {
-                            this._updateKeydownCaptureListeners(_Global.top, false /*add*/);
-                        }
-
-                    }
-                    this._searchSuggestions.removeEventListener("vectorchanged", this._suggestionsChangedHandlerBind);
-                    this._searchSuggestionManager.removeEventListener("suggestionsrequested", this._suggestionsRequestedHandlerBind);
-
-                    this._searchSuggestionManager = null;
-                    this._searchSuggestions = null;
-                    this._hitFinder = null;
-
-                    this._disposed = true;
-
-                },
-
-                /// <field type="Function" locid="WinJS.UI.SearchBox.onquerychanged" helpKeyword="WinJS.UI.SearchBox.onquerychanged">
-                /// Raised when user or app changes the query text.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                onquerychanged: createEvent(EventName.querychanged),
-
-                /// <field type="Function" locid="WinJS.UI.SearchBox.onquerysubmitted" helpKeyword="WinJS.UI.SearchBox.onquerysubmitted">
-                /// Raised when user clicks on search glyph or presses enter button.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                onquerysubmitted: createEvent(EventName.querysubmitted),
-
-                /// <field type="Function" locid="WinJS.UI.SearchBox.onresultsuggestionchosen" helpKeyword="WinJS.UI.SearchBox.onresultsuggestionchosen">
-                /// Raised when user clicks on one of the suggestions displayed.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                onresultsuggestionchosen: createEvent(EventName.resultsuggestionchosen),
-
-                /// <field type="Function" locid="WinJS.UI.SearchBox.onsuggestionsrequested" helpKeyword="WinJS.UI.SearchBox.onsuggestionsrequested">
-                /// Raised when Windows requests search suggestions from the app.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                onsuggestionsrequested: createEvent(EventName.suggestionsrequested),
-
-                // Private methods
-                _isFlyoutShown: function SearchBox_isFlyoutShown() {
-                    return (this._flyoutDivElement.style.display !== "none");
-                },
-
-                _isFlyoutBelow: function SearchBox_isFlyoutBelow() {
-                    if (this._flyoutDivElement.getBoundingClientRect().top > this._inputElement.getBoundingClientRect().top) {
-                        return true;
-                    }
-                    return false;
-                },
-
-                _getFlyoutTop: function SearchBox_getFlyoutTop() {
-                    if (this._isFlyoutBelow()) {
-                        return this._inputElement.getBoundingClientRect().bottom;
-                    }
-                    var popupHeight = this._flyoutDivElement.getBoundingClientRect().bottom - this._flyoutDivElement.getBoundingClientRect().top;
-                    return this._inputElement.getBoundingClientRect().top - popupHeight;
-                },
-
-                _getFlyoutBottom: function SearchBox_getFlyoutBottom() {
-                    if (this._isFlyoutBelow()) {
-                        var popupHeight = this._flyoutDivElement.getBoundingClientRect().bottom - this._flyoutDivElement.getBoundingClientRect().top;
-                        return this._inputElement.getBoundingClientRect().bottom + popupHeight;
-                    }
-                    return this._inputElement.getBoundingClientRect().top;
-                },
-
-                _updateFlyoutTopAndTouchAction: function SearchBox_updateFlyoutTopAndTouchAction() {
-                    var popupHeight = this._flyoutDivElement.getBoundingClientRect().bottom - this._flyoutDivElement.getBoundingClientRect().top;
-                    if (!this._isFlyoutBelow()) {
-                        this._flyoutDivElement.style.top = "-" + popupHeight + "px";
-                    }
-
-                    // ms-scroll-chaining:none will still chain scroll parent element if child div does
-                    // not have a scroll bar. Prevent this by setting and updating touch action
-                    if (this._flyoutDivElement.scrollHeight > popupHeight) {
-                        this._flyoutDivElement.style.touchAction = "pan-y";
-                    } else {
-                        this._flyoutDivElement.style.touchAction = "none";
-                    }
-                },
-
-                _showFlyout: function SearchBox_showFlyout() {
-
-                    if (this._isFlyoutShown()) {
-                        return;
-                    }
-
-                    if (this._suggestionsData.length === 0) {
-                        return;
-                    }
-
-                    this._flyoutDivElement.style.display = "block";
-
-                    // Display above vs below
-                    var minPopupHeight = this._flyoutDivElement.clientHeight;
-                    if (minPopupHeight < SearchBox._Constants.MIN_POPUP_HEIGHT) {
-                        minPopupHeight = SearchBox._Constants.MIN_POPUP_HEIGHT;
-                    }
-                    var flyoutRect = this._flyoutDivElement.getBoundingClientRect();
-                    var searchBoxRect = this.element.getBoundingClientRect();
-                    var popupHeight = flyoutRect.bottom - flyoutRect.top;
-                    var popupWidth = flyoutRect.right - flyoutRect.left;
-                    var searchBoxWidth = searchBoxRect.right - searchBoxRect.left;
-                    var documentClientHeight = _Global.document.documentElement.clientHeight;
-                    var documentClientWidth = _Global.document.documentElement.clientWidth;
-                    var searchBoxClientHeight = this.element.clientHeight;
-                    var searchBoxClientLeft = this.element.clientLeft;
-
-                    var flyoutBelowSearchBox = true;
-                    if ((searchBoxRect.bottom + minPopupHeight) <= documentClientHeight) {
-                        // There is enough space below. Show below
-                        this._flyoutDivElement.style.top = searchBoxClientHeight + "px";
-                    } else if ((searchBoxRect.top - minPopupHeight) >= 0) {
-                        // There is enough space above. Show above
-                        this._flyoutDivElement.style.top = "-" + popupHeight + "px";
-                        flyoutBelowSearchBox = false;
-                    } else {
-                        // Not enough space above or below. Show below.
-                        this._flyoutDivElement.style.top = searchBoxClientHeight + "px";
-                    }
-
-                    // Align left vs right edge
-                    var alignRight;
-                    if (_Global.getComputedStyle(this._flyoutDivElement).direction === "rtl") {
-                        // RTL: Align to the right edge if there is enough space to the left of the search box's
-                        // right edge, or if there is not enough space to fit the flyout aligned to either edge.
-                        alignRight = ((searchBoxRect.right - popupWidth) >= 0) || ((searchBoxRect.left + popupWidth) > documentClientWidth);
-
-                    } else {
-                        // LTR: Align to the right edge if there isn't enough space to the right of the search box's
-                        // left edge, but there is enough space to the left of the search box's right edge.
-                        alignRight = ((searchBoxRect.left + popupWidth) > documentClientWidth) && ((searchBoxRect.right - popupWidth) >= 0);
-                    }
-
-                    if (alignRight) {
-                        this._flyoutDivElement.style.left = (searchBoxWidth - popupWidth - searchBoxClientLeft) + "px";
-                    } else {
-                        this._flyoutDivElement.style.left = "-" + searchBoxClientLeft + "px";
-                    }
-
-                    // ms-scroll-chaining:none will still chain scroll parent element if child div does
-                    // not have a scroll bar. Prevent this by setting and updating touch action
-                    if (this._flyoutDivElement.scrollHeight > popupHeight) {
-                        this._flyoutDivElement.style.touchAction = "pan-y";
-                    } else {
-                        this._flyoutDivElement.style.touchAction = "none";
-                    }
-
-                    this._addFlyoutIMEPaddingIfRequired();
-
-                    if (this._flyoutOpenPromise) {
-                        this._flyoutOpenPromise.cancel();
-                        this._flyoutOpenPromise = null;
-                    }
-                    var animationKeyframe = flyoutBelowSearchBox ? "WinJS-flyoutBelowSearchBox-showPopup" : "WinJS-flyoutAboveSearchBox-showPopup";
-                    this._flyoutOpenPromise = Animations.showPopup(this._flyoutDivElement, { top: "0px", left: "0px", keyframe: animationKeyframe });
-                },
-
-                _hideFlyout: function SearchBox_hideFlyout() {
-                    if (this._isFlyoutShown()) {
-                        this._flyoutDivElement.style.display = "none";
-                        this._updateSearchButtonClass();
-                    }
-                },
-
-                _addNewSpan: function SearchBox_addNewSpan(element, textContent, insertBefore) {
-                    // Adds new span element with specified inner text as child to element, placed before insertBefore
-                    var spanElement = _Global.document.createElement("span");
-                    spanElement.textContent = textContent;
-                    spanElement.setAttribute("aria-hidden", "true");
-                    _ElementUtilities.addClass(spanElement, ClassName.searchboxHitHighlightSpan);
-                    element.insertBefore(spanElement, insertBefore);
-                    return spanElement;
-                },
-
-                _addHitHighlightedText: function SearchBox_addHitHighlightedText(element, item, text) {
-                    if (text) {
-                        // Remove any existing hit highlighted text spans
-                        _ElementListUtilities.query("." + ClassName.searchboxHitHighlightSpan, element).forEach(function (childElement) {
-                            childElement.parentNode.removeChild(childElement);
-                        });
-
-                        // Insert spans at the front of element
-                        var firstChild = element.firstChild;
-
-                        var hitsProvided = item.hits;
-                        if ((!hitsProvided) && (this._hitFinder !== null) && (item.kind !== _SearchSuggestionManagerShim._SearchSuggestionKind.Separator)) {
-                            hitsProvided = this._hitFinder.find(text);
-                        }
-
-                        var hits = SearchBox._sortAndMergeHits(hitsProvided);
-
-                        var lastPosition = 0;
-                        for (var i = 0; i < hits.length; i++) {
-                            var hit = hits[i];
-
-                            // Add previous normal text
-                            this._addNewSpan(element, text.substring(lastPosition, hit.startPosition), firstChild);
-
-                            lastPosition = hit.startPosition + hit.length;
-
-                            // Add hit highlighted text
-                            var spanHitHighlightedText = this._addNewSpan(element, text.substring(hit.startPosition, lastPosition), firstChild);
-                            _ElementUtilities.addClass(spanHitHighlightedText, ClassName.searchBoxFlyoutHighlightText);
-                        }
-
-                        // Add final normal text
-                        if (lastPosition < text.length) {
-                            this._addNewSpan(element, text.substring(lastPosition), firstChild);
-                        }
-                    }
-                },
-
-                _findSuggestionElementIndex: function SearchBox_findSuggestionElementIndex(curElement) {
-                    if (curElement) {
-                        for (var i = 0; i < this._suggestionsData.length; i++) {
-                            if (this._repeater.elementFromIndex(i) === curElement) {
-                                return i;
-                            }
-                        }
-                    }
-                    return -1;
-                },
-
-                _isSuggestionSelectable: function SearchBox_isSuggestionSelectable(suggestion) {
-                    return ((suggestion.kind === _SearchSuggestionManagerShim._SearchSuggestionKind.Query) ||
-                            (suggestion.kind === _SearchSuggestionManagerShim._SearchSuggestionKind.Result));
-                },
-
-                _findNextSuggestionElementIndex: function SearchBox_findNextSuggestionElementIndex(curIndex) {
-                    // Returns -1 if there are no focusable elements after curIndex
-                    // Returns first element if curIndex < 0
-                    var startIndex = curIndex + 1;
-                    if (startIndex < 0) {
-                        startIndex = 0;
-                    }
-
-                    for (var i = startIndex; i < this._suggestionsData.length; i++) {
-                        if ((this._repeater.elementFromIndex(i)) && (this._isSuggestionSelectable(this._suggestionsData.getAt(i)))) {
-                            return i;
-                        }
-                    }
-                    return -1;
-                },
-
-                _findPreviousSuggestionElementIndex: function SearchBox_findPreviousSuggestionElementIndex(curIndex) {
-                    // Returns -1 if there are no focusable elements before curIndex
-                    // Returns last element if curIndex >= suggestionsdata.length
-                    var startIndex = curIndex - 1;
-                    if (startIndex >= this._suggestionsData.length) {
-                        startIndex = this._suggestionsData.length - 1;
-                    }
-
-                    for (var i = startIndex; i >= 0; i--) {
-                        if ((this._repeater.elementFromIndex(i)) && (this._isSuggestionSelectable(this._suggestionsData.getAt(i)))) {
-                            return i;
-                        }
-                    }
-                    return -1;
-                },
-
-                _trySetFocusOnSuggestionIndex: function SearchBox_trySetFocusOnSuggestionIndex(index) {
-                    try {
-                        this._repeater.elementFromIndex(index).focus();
-                    } catch (e) {
-                    }
-                },
-
-                _updateFakeFocus: function SearchBox_updateFakeFocus() {
-                    var firstElementIndex;
-                    if (this._isFlyoutShown() && (this._chooseSuggestionOnEnter)) {
-                        firstElementIndex = this._findNextSuggestionElementIndex(-1);
-                    } else {
-                        // This will clear the fake focus.
-                        firstElementIndex = -1;
-                    }
-
-                    this._selectSuggestionAtIndex(firstElementIndex);
-                },
-
-                _updateSearchButtonClass: function SearchBox_updateSearchButtonClass() {
-                    if ((this._currentSelectedIndex !== -1) || (_Global.document.activeElement !== this._inputElement)) {
-                        // Focus is not in input. remove class
-                        _ElementUtilities.removeClass(this._buttonElement, ClassName.searchBoxButtonInputFocus);
-                    } else if (_Global.document.activeElement === this._inputElement) {
-                        _ElementUtilities.addClass(this._buttonElement, ClassName.searchBoxButtonInputFocus);
-                    }
-                },
-
-                _selectSuggestionAtIndex: function SearchBox_selectSuggestionAtIndex(indexToSelect) {
-                    // Sets focus on the specified element and removes focus from others.
-                    // Clears selection if index is outside of suggestiondata index range.
-                    var curElement = null;
-                    for (var i = 0; i < this._suggestionsData.length; i++) {
-                        curElement = this._repeater.elementFromIndex(i);
-                        if (i !== indexToSelect) {
-                            _ElementUtilities.removeClass(curElement, ClassName.searchBoxSuggestionSelected);
-                            curElement.setAttribute("aria-selected", "false");
-                        } else {
-                            _ElementUtilities.addClass(curElement, ClassName.searchBoxSuggestionSelected);
-                            this._scrollToView(curElement);
-                            curElement.setAttribute("aria-selected", "true");
-                        }
-                    }
-                    this._updateSearchButtonClass();
-                    this._currentSelectedIndex = indexToSelect;
-                    if (curElement) {
-                        this._inputElement.setAttribute("aria-activedescendant", this._repeaterDivElement.id + indexToSelect);
-                    } else if (this._inputElement.hasAttribute("aria-activedescendant")) {
-                        this._inputElement.removeAttribute("aria-activedescendant");
-                    }
-                },
-
-                _scrollToView: function SearchBox_scrollToView(targetElement) {
-                    var popupHeight = this._flyoutDivElement.getBoundingClientRect().bottom - this._flyoutDivElement.getBoundingClientRect().top;
-                    if ((targetElement.offsetTop + targetElement.offsetHeight) > (this._flyoutDivElement.scrollTop + popupHeight)) {
-                        // Element to scroll is below popup visible area
-                        var scrollDifference = (targetElement.offsetTop + targetElement.offsetHeight) - (this._flyoutDivElement.scrollTop + popupHeight);
-                        _ElementUtilities._zoomTo(this._flyoutDivElement, { contentX: 0, contentY: (this._flyoutDivElement.scrollTop + scrollDifference), viewportX: 0, viewportY: 0 });
-                    } else if (targetElement.offsetTop < this._flyoutDivElement.scrollTop) {
-                        // Element to scroll is above popup visible area
-                        _ElementUtilities._zoomTo(this._flyoutDivElement, { contentX: 0, contentY: targetElement.offsetTop, viewportX: 0, viewportY: 0 });
-                    }
-                },
-
-                _querySuggestionRenderer: function SearchBox_querySuggestionRenderer(item) {
-                    var root = _Global.document.createElement("div");
-
-                    this._addHitHighlightedText(root, item, item.text);
-                    root.title = item.text;
-
-                    _ElementUtilities.addClass(root, ClassName.searchBoxSuggestionQuery);
-
-                    var that = this;
-                    _ElementUtilities._addEventListener(root, "pointerup", function (ev) {
-                        that._inputElement.focus();
-                        that._processSuggestionChosen(item, ev);
-                    });
-
-                    root.setAttribute("role", "option");
-                    var ariaLabel = _Resources._formatString(strings.ariaLabelQuery, item.text);
-                    root.setAttribute("aria-label", ariaLabel);
-                    return root;
-                },
-
-                _separatorSuggestionRenderer: function SearchBox_separatorSuggestionRenderer(item) {
-                    var root = _Global.document.createElement("div");
-                    if (item.text.length > 0) {
-                        var textElement = _Global.document.createElement("div");
-                        textElement.textContent = item.text;
-                        textElement.title = item.text;
-                        textElement.setAttribute("aria-hidden", "true");
-                        root.appendChild(textElement);
-                    }
-                    root.insertAdjacentHTML("beforeend", "<hr/>");
-                    _ElementUtilities.addClass(root, ClassName.searchBoxSuggestionSeparator);
-                    root.setAttribute("role", "separator");
-                    var ariaLabel = _Resources._formatString(strings.ariaLabelSeparator, item.text);
-                    root.setAttribute("aria-label", ariaLabel);
-                    return root;
-                },
-
-                _resultSuggestionRenderer: function SearchBox_resultSuggestionRenderer(item) {
-                    var root = _Global.document.createElement("div");
-                    var image = new _Global.Image();
-                    image.style.opacity = 0;
-                    var loadImage = function (url) {
-                        function onload() {
-                            image.removeEventListener("load", onload, false);
-                            Animations.fadeIn(image);
-                        }
-                        image.addEventListener("load", onload, false);
-                        image.src = url;
-                    };
-
-                    if (item.image !== null) {
-                        item.image.openReadAsync().then(function (streamWithContentType) {
-                            if (streamWithContentType !== null) {
-                                loadImage(_Global.URL.createObjectURL(streamWithContentType, { oneTimeOnly: true }));
-                            }
-                        });
-                    } else if (item.imageUrl !== null) {
-                        loadImage(item.imageUrl);
-                    }
-                    image.setAttribute("aria-hidden", "true");
-                    root.appendChild(image);
-
-                    var divElement = _Global.document.createElement("div");
-                    _ElementUtilities.addClass(divElement, ClassName.searchBoxSuggestionResultText);
-                    this._addHitHighlightedText(divElement, item, item.text);
-                    divElement.title = item.text;
-                    divElement.setAttribute("aria-hidden", "true");
-                    root.appendChild(divElement);
-
-                    var brElement = _Global.document.createElement("br");
-                    divElement.appendChild(brElement);
-
-                    var divDetailElement = _Global.document.createElement("span");
-                    _ElementUtilities.addClass(divDetailElement, ClassName.searchBoxSuggestionResultDetailedText);
-                    this._addHitHighlightedText(divDetailElement, item, item.detailText);
-                    divDetailElement.title = item.detailText;
-                    divDetailElement.setAttribute("aria-hidden", "true");
-                    divElement.appendChild(divDetailElement);
-
-                    _ElementUtilities.addClass(root, ClassName.searchBoxSuggestionResult);
-
-                    var that = this;
-                    _ElementUtilities._addEventListener(root, "pointerup", function (ev) {
-                        that._inputElement.focus();
-                        that._processSuggestionChosen(item, ev);
-                    });
-
-                    root.setAttribute("role", "option");
-                    var ariaLabel = _Resources._formatString(strings.ariaLabelResult, item.text, item.detailText);
-                    root.setAttribute("aria-label", ariaLabel);
-                    return root;
-                },
-
-                _suggestionRenderer: function SearchBox_suggestionRenderer(item) {
-                    var root = null;
-                    if (!item) {
-                        return root;
-                    }
-                    if (item.kind === _SearchSuggestionManagerShim._SearchSuggestionKind.Query) {
-                        root = this._querySuggestionRenderer(item);
-                    } else if (item.kind === _SearchSuggestionManagerShim._SearchSuggestionKind.Separator) {
-                        root = this._separatorSuggestionRenderer(item);
-                    } else if (item.kind === _SearchSuggestionManagerShim._SearchSuggestionKind.Result) {
-                        root = this._resultSuggestionRenderer(item);
-                    } else {
-                        throw new _ErrorFromName("WinJS.UI.SearchBox.invalidSearchBoxSuggestionKind", strings.invalidSearchBoxSuggestionKind);
-                    }
-
-                    return root;
-                },
-
-                _setElement: function SearchBox_setElement(element) {
-                    this._domElement = element;
-                    _ElementUtilities.addClass(this._domElement, ClassName.searchBox);
-
-                    this._inputElement = _Global.document.createElement("input");
-                    this._inputElement.type = "search";
-                    _ElementUtilities.addClass(this._inputElement, ClassName.searchBoxInput);
-
-                    this._buttonElement = _Global.document.createElement("div");
-                    this._buttonElement.tabIndex = -1;
-                    _ElementUtilities.addClass(this._buttonElement, ClassName.searchBoxButton);
-
-                    this._flyoutDivElement = _Global.document.createElement('div');
-                    _ElementUtilities.addClass(this._flyoutDivElement, ClassName.searchBoxFlyout);
-
-                    this._repeaterDivElement = _Global.document.createElement('div');
-                    this._suggestionsData = new BindingList.List();
-                    this._repeater = new Repeater.Repeater(this._repeaterDivElement, { data: this._suggestionsData, template: this._suggestionRendererBind });
-
-                    this._domElement.appendChild(this._inputElement);
-                    this._domElement.appendChild(this._buttonElement);
-                    this._domElement.appendChild(this._flyoutDivElement);
-                    this._flyoutDivElement.appendChild(this._repeaterDivElement);
-                    this._hideFlyout();
-
-                    this._wireupUserEvents();
-                    this._wireupWinRTEvents();
-                    this._wireupRepeaterEvents();
-                },
-
-                _setAccessibilityProperties: function Searchbox_setAccessibilityProperties() {
-                    // Set up accessibility properties
-                    var label = this._domElement.getAttribute("aria-label");
-                    if (!label) {
-                        this._domElement.setAttribute("aria-label", strings.ariaLabel);
-                    }
-                    this._domElement.setAttribute("role", "group");
-                    this._updateInputElementAriaLabel();
-                    this._inputElement.setAttribute("role", "textbox");
-                    this._buttonElement.setAttribute("role", "button");
-                    this._buttonElement.setAttribute("aria-label", strings.ariaLabelButton);
-                    this._repeaterDivElement.setAttribute("role", "listbox");
-                    _ElementUtilities._ensureId(this._repeaterDivElement);
-                    this._inputElement.setAttribute("aria-controls", this._repeaterDivElement.id);
-                    this._repeaterDivElement.setAttribute("aria-live", "polite");
-                },
-
-                _updateInputElementAriaLabel: function Searchbox_updateInputElementAriaLabel() {
-                    var ariaLabel = strings.ariaLabelInputNoPlaceHolder;
-                    if (this._inputElement.placeholder && this._inputElement.placeholder) {
-                        ariaLabel = _Resources._formatString(strings.ariaLabelInputPlaceHolder, this._inputElement.placeholder);
-                    }
-                    this._inputElement.setAttribute("aria-label", ariaLabel);
-                },
-
-                _submitQuery: function Searchbox_submitQuery(queryText, fillLinguisticDetails, event) {
-                    if (this._disposed) {
-                        return;
-                    }
-
-                    // get the most up to date value of the input langauge from WinRT if available
-                    if (_WinRT.Windows.Globalization.Language) {
-                        this._lastKeyPressLanguage = _WinRT.Windows.Globalization.Language.currentInputMethodLanguageTag;
-                    }
-
-                    this._fireEvent(SearchBox._EventName.querysubmitted, {
-                        language: this._lastKeyPressLanguage,
-                        linguisticDetails: this._getLinguisticDetails(true /*useCache*/, fillLinguisticDetails), // allow caching, but generate empty linguistic details if suggestion is used
-                        queryText: queryText,
-                        keyModifiers: SearchBox._getKeyModifiers(event)
-                    });
-
-                    if (this._searchSuggestionManager) {
-                        this._searchSuggestionManager.addToHistory(
-                            this._inputElement.value,
-                            this._lastKeyPressLanguage
-                            );
-                    }
-                },
-
-                _processSuggestionChosen: function Searchbox_processSuggestionChosen(item, event) {
-                    this.queryText = item.text;
-                    if (item.kind === _SearchSuggestionManagerShim._SearchSuggestionKind.Query) {
-                        this._submitQuery(item.text, false /*fillLinguisticDetails*/, event); // force empty linguistic details since explicitly chosen suggestion from list
-                    } else if (item.kind === _SearchSuggestionManagerShim._SearchSuggestionKind.Result) {
-                        this._fireEvent(SearchBox._EventName.resultsuggestionchosen, {
-                            tag: item.tag,
-                            keyModifiers: SearchBox._getKeyModifiers(event),
-                            storageFile: null
-                        });
-                    }
-                    this._hideFlyout();
-                },
-
-                _buttonClickHandler: function SearchBox_buttonClickHandler(event) {
-                    this._inputElement.focus();
-                    this._submitQuery(this._inputElement.value, true /*fillLinguisticDetails*/, event);
-                    this._hideFlyout();
-                },
-
-                _inputOrImeChangeHandler: function SearchBox_inputImeChangeHandler() {
-                    var isButtonDown = _ElementUtilities._matchesSelector(this._buttonElement, ":active");
-                    // swallow the IME change event that gets fired when composition is ended due to keyboarding down to the suggestion list & mouse down on the button
-                    if (!this._isProcessingImeFocusLossKey() && !isButtonDown && !this._isFlyoutPointerDown) {
-                        var linguisticDetails = this._getLinguisticDetails(false /*useCache*/, true /*createFilled*/); // never cache on explicit user changes
-                        var hasLinguisticDetailsChanged = this._hasLinguisticDetailsChanged(linguisticDetails); // updates this._prevLinguisticDetails
-
-                        // Keep the previous composition cache up to date, execpt when composition ended with no text change and alternatives are kept.
-                        // In that case, we need to use the cached values to correctly generate the query prefix/suffix for substituting alternatives, but still report to the client that the composition has ended (via start & length of composition of 0)
-                        if ((this._inputElement.value !== this._prevQueryText) || (this._prevCompositionLength === 0) || (linguisticDetails.queryTextCompositionLength > 0)) {
-                            this._prevCompositionStart = linguisticDetails.queryTextCompositionStart;
-                            this._prevCompositionLength = linguisticDetails.queryTextCompositionLength;
-                        }
-
-                        if ((this._prevQueryText === this._inputElement.value) && !hasLinguisticDetailsChanged) {
-                            // Sometimes the input change is fired even if there is no change in input.
-                            // Swallow event in those cases.
-                            return;
-                        }
-                        this._prevQueryText = this._inputElement.value;
-
-                        // get the most up to date value of the input langauge from WinRT if available
-                        if (_WinRT.Windows.Globalization.Language) {
-                            this._lastKeyPressLanguage = _WinRT.Windows.Globalization.Language.currentInputMethodLanguageTag;
-                        }
-
-                        if (_WinRT.Windows.Data.Text.SemanticTextQuery) {
-                            if (this._inputElement.value !== "") {
-                                this._hitFinder = new _WinRT.Windows.Data.Text.SemanticTextQuery(this._inputElement.value, this._lastKeyPressLanguage);
-                            } else {
-                                this._hitFinder = null;
-                            }
-                        }
-
-                        this._fireEvent(SearchBox._EventName.querychanged, {
-                            language: this._lastKeyPressLanguage,
-                            queryText: this._inputElement.value,
-                            linguisticDetails: linguisticDetails
-                        });
-                        if (this._searchSuggestionManager) {
-                            this._searchSuggestionManager.setQuery(
-                                this._inputElement.value,
-                                this._lastKeyPressLanguage,
-                                linguisticDetails
-                                );
-                        }
-                    }
-                },
-
-                _createSearchQueryLinguisticDetails: function SearchBox_createSearchQueryLinguisticDetails(compositionAlternatives, compositionStartOffset, compositionLength, queryTextPrefix, queryTextSuffix) {
-                    var linguisticDetails = null;
-
-                    // The linguistic alternatives we receive are only for the composition string being composed. We need to provide the linguistic alternatives
-                    // in the form of the full query text with alternatives embedded.
-                    var fullCompositionAlternatives = [];
-                    for (var i = 0; i < compositionAlternatives.length; i++) {
-                        fullCompositionAlternatives[i] = queryTextPrefix + compositionAlternatives[i] + queryTextSuffix;
-                    }
-
-                    if (_WinRT.Windows.ApplicationModel.Search.SearchQueryLinguisticDetails) {
-                        linguisticDetails = new _WinRT.Windows.ApplicationModel.Search.SearchQueryLinguisticDetails(fullCompositionAlternatives, compositionStartOffset, compositionLength);
-                    } else {
-                        // If we're in web compartment, create a script version of the WinRT SearchQueryLinguisticDetails object
-                        linguisticDetails = {
-                            queryTextAlternatives: fullCompositionAlternatives,
-                            queryTextCompositionStart: compositionStartOffset,
-                            queryTextCompositionLength: compositionLength
-                        };
-                    }
-                    return linguisticDetails;
-                },
-
-                _getLinguisticDetails: function SearchBox_getLinguisticDetails(useCache, createFilled) { // createFilled=false always creates an empty linguistic details object, otherwise generate it or use the cache
-                    var linguisticDetails = null;
-                    if ((this._inputElement.value === this._prevQueryText) && useCache && this._prevLinguisticDetails && createFilled) {
-                        linguisticDetails = this._prevLinguisticDetails;
-                    } else {
-                        var compositionAlternatives = [];
-                        var compositionStartOffset = 0;
-                        var compositionLength = 0;
-                        var queryTextPrefix = "";
-                        var queryTextSuffix = "";
-                        if (createFilled && this._inputElement.msGetInputContext && this._inputElement.msGetInputContext().getCompositionAlternatives) {
-                            var context = this._inputElement.msGetInputContext();
-                            compositionAlternatives = context.getCompositionAlternatives();
-                            compositionStartOffset = context.compositionStartOffset;
-                            compositionLength = context.compositionEndOffset - context.compositionStartOffset;
-
-                            if ((this._inputElement.value !== this._prevQueryText) || (this._prevCompositionLength === 0) || (compositionLength > 0)) {
-                                queryTextPrefix = this._inputElement.value.substring(0, compositionStartOffset);
-                                queryTextSuffix = this._inputElement.value.substring(compositionStartOffset + compositionLength);
-                            } else {
-                                // composition ended, but alternatives have been kept, need to reuse the previous query prefix/suffix, but still report to the client that the composition has ended (start & length of composition of 0)
-                                queryTextPrefix = this._inputElement.value.substring(0, this._prevCompositionStart);
-                                queryTextSuffix = this._inputElement.value.substring(this._prevCompositionStart + this._prevCompositionLength);
-                            }
-                        }
-                        linguisticDetails = this._createSearchQueryLinguisticDetails(compositionAlternatives, compositionStartOffset, compositionLength, queryTextPrefix, queryTextSuffix);
-                    }
-                    return linguisticDetails;
-                },
-
-                _handleTabKeyDown: function SearchBox_handleTabKeyDown(event) {
-                    var closeFlyout = true;
-                    if (event.shiftKey) {
-                        // If focus is not in input
-                        if (this._currentFocusedIndex !== -1) {
-                            // Remove selection.
-                            this._currentFocusedIndex = -1;
-                            this._selectSuggestionAtIndex(this._currentFocusedIndex);
-                            this._updateSearchButtonClass();
-                            event.preventDefault();
-                            event.stopPropagation();
-                            closeFlyout = false;
-                        }
-                    } else if (this._currentFocusedIndex === -1) {
-                        if (this._isFlyoutBelow()) {
-                            // Move to first element
-                            this._currentFocusedIndex = this._findNextSuggestionElementIndex(this._currentFocusedIndex);
-                        } else {
-                            // Move to last element
-                            this._currentFocusedIndex = this._findPreviousSuggestionElementIndex(this._suggestionsData.length);
-                        }
-                        if (this._currentFocusedIndex !== -1) {
-                            this._selectSuggestionAtIndex(this._currentFocusedIndex);
-                            this._updateQueryTextWithSuggestionText(this._currentFocusedIndex);
-                            this._updateSearchButtonClass();
-                            event.preventDefault();
-                            event.stopPropagation();
-                            closeFlyout = false;
-                        }
-                    }
-
-                    if (closeFlyout) {
-                        this._hideFlyout();
-                    }
-                },
-
-                _keyDownHandler: function SearchBox_keyDownHandler(event) {
-                    this._lastKeyPressLanguage = event.locale;
-                    if (event.keyCode === Key.tab) {
-                        this._isProcessingTabKey = true;
-                    } else if (event.keyCode === Key.upArrow) {
-                        this._isProcessingUpKey = true;
-                    } else if (event.keyCode === Key.downArrow) {
-                        this._isProcessingDownKey = true;
-                    } else if ((event.keyCode === Key.enter) && (event.locale === "ko")) {
-                        this._isProcessingEnterKey = true;
-                    }
-                    // Ignore keys handled by ime.
-                    if (event.keyCode !== Key.IME) {
-                        if (event.keyCode === Key.tab) {
-                            this._handleTabKeyDown(event);
-                        } else if (event.keyCode === Key.escape) {
-                            // If focus is not in input
-                            if (this._currentFocusedIndex !== -1) {
-                                this.queryText = this._prevQueryText;
-                                this._currentFocusedIndex = -1;
-                                this._selectSuggestionAtIndex(this._currentFocusedIndex);
-                                this._updateSearchButtonClass();
-                                event.preventDefault();
-                                event.stopPropagation();
-                            } else if (this.queryText !== "") {
-                                this.queryText = "";
-                                this._inputOrImeChangeHandler(null);
-                                this._updateSearchButtonClass();
-                                event.preventDefault();
-                                event.stopPropagation();
-                            }
-                        } else if (event.keyCode === Key.upArrow) {
-                            var prevIndex;
-                            if (this._currentSelectedIndex !== -1) {
-                                prevIndex = this._findPreviousSuggestionElementIndex(this._currentSelectedIndex);
-                                // Restore user entered query when user navigates back to input.
-                                if (prevIndex === -1) {
-                                    this.queryText = this._prevQueryText;
-                                }
-                            } else {
-                                prevIndex = this._findPreviousSuggestionElementIndex(this._suggestionsData.length);
-                            }
-                            this._currentFocusedIndex = prevIndex;
-                            this._selectSuggestionAtIndex(prevIndex);
-                            this._updateQueryTextWithSuggestionText(this._currentFocusedIndex);
-                            this._updateSearchButtonClass();
-                            event.preventDefault();
-                            event.stopPropagation();
-                        } else if (event.keyCode === Key.downArrow) {
-                            var nextIndex = this._findNextSuggestionElementIndex(this._currentSelectedIndex);
-                            // Restore user entered query when user navigates back to input.
-                            if ((this._currentSelectedIndex !== -1) && (nextIndex === -1)) {
-                                this.queryText = this._prevQueryText;
-                            }
-                            this._currentFocusedIndex = nextIndex;
-                            this._selectSuggestionAtIndex(nextIndex);
-                            this._updateQueryTextWithSuggestionText(this._currentFocusedIndex);
-                            this._updateSearchButtonClass();
-                            event.preventDefault();
-                            event.stopPropagation();
-                        } else if (event.keyCode === Key.enter) {
-                            if (this._currentSelectedIndex === -1) {
-                                this._submitQuery(this._inputElement.value, true /*fillLinguisticDetails*/, event);
-                            } else {
-                                this._processSuggestionChosen(this._suggestionsData.getAt(this._currentSelectedIndex), event);
-                            }
-                            this._hideFlyout();
-                        } else if (SearchBox._isTypeToSearchKey(event)) {
-                            // Type to search on suggestions scenario.
-                            if (this._currentFocusedIndex !== -1) {
-                                this._currentFocusedIndex = -1;
-                                this._selectSuggestionAtIndex(-1);
-                                this._updateFakeFocus();
-                            }
-                        }
-                    }
-                },
-
-                _keyPressHandler: function SearchBox_keyPressHandler(event) {
-                    this._lastKeyPressLanguage = event.locale;
-                },
-
-                _keyUpHandler: function SearchBox_keyUpHandler(event) {
-                    if (event.keyCode === Key.tab) {
-                        this._isProcessingTabKey = false;
-                    } else if (event.keyCode === Key.upArrow) {
-                        this._isProcessingUpKey = false;
-                    } else if (event.keyCode === Key.downArrow) {
-                        this._isProcessingDownKey = false;
-                    } else if (event.keyCode === Key.enter) {
-                        this._isProcessingEnterKey = false;
-                    }
-                },
-
-                _inputFocusHandler: function SearchBox_inputFocusHandler(event) {
-                    // Refresh hit highlighting if text has changed since focus was present
-                    // This can happen if the user committed a suggestion previously.
-                    if (this._inputElement.value !== this._prevQueryText) {
-                        if (_WinRT.Windows.Data.Text.SemanticTextQuery) {
-                            if (this._inputElement.value !== "") {
-                                this._hitFinder = new _WinRT.Windows.Data.Text.SemanticTextQuery(this._inputElement.value, this._inputElement.lang);
-                            } else {
-                                this._hitFinder = null;
-                            }
-                        }
-                    }
-
-                    // If focus is returning to the input box from outside the search control, show the flyout and refresh the suggestions
-                    if ((event.target === this._inputElement) && !this._internalFocusMove) {
-                        this._showFlyout();
-                        // If focus is not in input
-                        if (this._currentFocusedIndex !== -1) {
-                            this._selectSuggestionAtIndex(this._currentFocusedIndex);
-                        } else {
-                            this._updateFakeFocus();
-                        }
-
-                        if (this._searchSuggestionManager) {
-                            this._searchSuggestionManager.setQuery(
-                                this._inputElement.value,
-                                this._lastKeyPressLanguage,
-                                this._getLinguisticDetails(true /*useCache*/, true /*createFilled*/)
-                                );
-                        }
-                    }
-
-                    this._internalFocusMove = false;
-                    _ElementUtilities.addClass(this.element, ClassName.searchBoxInputFocus);
-                    this._updateSearchButtonClass();
-                },
-
-                _flyoutBlurHandler: function SearchBox_flyoutBlurHandler() {
-                    if (this._isElementInSearchControl(_Global.document.activeElement)) {
-                        this._internalFocusMove = true;
-                    } else {
-                        this._hideFlyout();
-                        _ElementUtilities.removeClass(this.element, ClassName.searchBoxInputFocus);
-                    }
-                },
-
-                _inputBlurHandler: function SearchBox_inputBlurHandler(event) {
-                    if (!this._isElementInSearchControl(_Global.document.activeElement)) {
-                        this._hideFlyout();
-                        _ElementUtilities.removeClass(this.element, ClassName.searchBoxInputFocus);
-                    }
-                    this._updateSearchButtonClass();
-                    this._isProcessingDownKey = false;
-                    this._isProcessingUpKey = false;
-                    this._isProcessingTabKey = false;
-                    this._isProcessingEnterKey = false;
-                },
-
-                _isIMEOccludingFlyout: function SearchBox_isIMEOccludingFlyout(imeRect) {
-                    var flyoutTop = this._getFlyoutTop();
-                    var flyoutBottom = this._getFlyoutBottom();
-                    if (((imeRect.top >= flyoutTop) && (imeRect.top <= flyoutBottom)) ||
-                        ((imeRect.bottom >= flyoutTop) && (imeRect.bottom <= flyoutBottom))) {
-                        return true;
-                    }
-                    return false;
-                },
-
-                _addFlyoutIMEPaddingIfRequired: function SearchBox_addFlyoutIMEPaddingIfRequired() {
-                    if (this._isFlyoutShown() && this._isFlyoutBelow() && this._inputElement.msGetInputContext && this._inputElement.msGetInputContext()) {
-                        var context = this._inputElement.msGetInputContext();
-                        var rect = context.getCandidateWindowClientRect();
-                        if (this._isIMEOccludingFlyout(rect)) {
-                            var animation = Animations.createRepositionAnimation(this._flyoutDivElement.children);
-                            this._flyoutDivElement.style.paddingTop = (rect.bottom - rect.top) + "px";
-                            animation.execute();
-                        }
-                    }
-                },
-
-                _msCandidateWindowShowHandler: function SearchBox_msCandidateWindowShowHandler() {
-                    this._addFlyoutIMEPaddingIfRequired();
-                    this._reflowImeOnPointerRelease = false;
-                },
-
-                _msCandidateWindowHideHandler: function SearchBox_msCandidateWindowHideHandler() {
-                    if (!this._isFlyoutPointerDown) {
-                        var animation = Animations.createRepositionAnimation(this._flyoutDivElement.children);
-                        this._flyoutDivElement.style.paddingTop = "";
-                        animation.execute();
-                    } else {
-                        this._reflowImeOnPointerRelease = true;
-                    }
-                },
-
-                _wireupUserEvents: function SearchBox_wireupUserEvents() {
-                    var inputOrImeChangeHandler = this._inputOrImeChangeHandler.bind(this);
-                    this._buttonElement.addEventListener("click", this._buttonClickHandler.bind(this));
-                    this._inputElement.addEventListener("input", inputOrImeChangeHandler);
-                    this._inputElement.addEventListener("keydown", this._keyDownHandler.bind(this));
-                    this._inputElement.addEventListener("keypress", this._keyPressHandler.bind(this));
-                    this._inputElement.addEventListener("keyup", this._keyUpHandler.bind(this));
-                    this._inputElement.addEventListener("focus", this._inputFocusHandler.bind(this));
-                    this._inputElement.addEventListener("blur", this._inputBlurHandler.bind(this));
-                    _ElementUtilities._addEventListener(this._inputElement, "pointerdown", this._inputPointerDownHandler.bind(this));
-
-                    this._flyoutDivElement.addEventListener("blur", this._flyoutBlurHandler.bind(this));
-                    _ElementUtilities._addEventListener(this._flyoutDivElement, "pointerdown", this._flyoutPointerDownHandler.bind(this));
-                    _ElementUtilities._addEventListener(this._flyoutDivElement, "pointerup", this._flyoutPointerReleasedHandler.bind(this));
-                    _ElementUtilities._addEventListener(this._flyoutDivElement, "pointercancel", this._flyoutPointerReleasedHandler.bind(this));
-                    _ElementUtilities._addEventListener(this._flyoutDivElement, "pointerout", this._flyoutPointerReleasedHandler.bind(this));
-
-                    this._inputElement.addEventListener("compositionstart", inputOrImeChangeHandler);
-                    this._inputElement.addEventListener("compositionupdate", inputOrImeChangeHandler);
-                    this._inputElement.addEventListener("compositionend", inputOrImeChangeHandler);
-
-                    if (this._inputElement.msGetInputContext && this._inputElement.msGetInputContext()) {
-                        var context = this._inputElement.msGetInputContext();
-                        context.addEventListener("MSCandidateWindowShow", this._msCandidateWindowShowHandler.bind(this));
-                        context.addEventListener("MSCandidateWindowHide", this._msCandidateWindowHideHandler.bind(this));
-                    }
-                },
-
-                _repeaterChangedHandler: function SearchBox_repeaterChangedHandler() {
-                    this._updateFlyoutTopAndTouchAction();
-                    if (this._isFlyoutShown()) {
-                        this._repeaterDivElement.style.display = "none";
-                        this._repeaterDivElement.style.display = "block";
-                    }
-                },
-
-                _wireupRepeaterEvents: function SearchBox_wireupRepeaterEvents() {
-                    var repeaterChangeHandler = this._repeaterChangedHandler.bind(this);
-                    this._repeater.addEventListener("itemchanged", repeaterChangeHandler);
-                    this._repeater.addEventListener("iteminserted", repeaterChangeHandler);
-                    this._repeater.addEventListener("itemremoved", repeaterChangeHandler);
-                    this._repeater.addEventListener("itemsreloaded", repeaterChangeHandler);
-                },
-
-                _inputPointerDownHandler: function SearchBox_inputPointerDownHandler() {
-                    if ((_Global.document.activeElement === this._inputElement) && (this._currentSelectedIndex !== -1)) {
-                        this._currentFocusedIndex = -1;
-                        this._selectSuggestionAtIndex(this._currentFocusedIndex);
-                    }
-                },
-
-                _flyoutPointerDownHandler: function SearchBox_flyoutPointerDownHandler(ev) {
-                    this._isFlyoutPointerDown = true;
-                    var srcElement = ev.target;
-                    while (srcElement && (srcElement.parentNode !== this._repeaterDivElement)) {
-                        srcElement = srcElement.parentNode;
-                    }
-                    var index = this._findSuggestionElementIndex(srcElement);
-                    if ((index >= 0) && (index < this._suggestionsData.length) && (this._currentFocusedIndex !== index)) {
-                        if (this._isSuggestionSelectable(this._suggestionsData.getAt(index))) {
-                            this._currentFocusedIndex = index;
-                            this._selectSuggestionAtIndex(index);
-                            this._updateQueryTextWithSuggestionText(this._currentFocusedIndex);
-                        }
-                    }
-                    // Prevent default so focus does not leave input element.
-                    ev.preventDefault();
-                },
-
-                _flyoutPointerReleasedHandler: function SearchBox_flyoutPointerReleasedHandler() {
-                    this._isFlyoutPointerDown = false;
-
-                    if (this._reflowImeOnPointerRelease) {
-                        this._reflowImeOnPointerRelease = false;
-                        var animation = Animations.createRepositionAnimation(this._flyoutDivElement.children);
-                        this._flyoutDivElement.style.paddingTop = "";
-                        animation.execute();
-                    }
-                },
-
-                _isElementInSearchControl: function SearchBox_isElementInSearchControl(targetElement) {
-                    return this.element.contains(targetElement) || (this.element === targetElement);
-                },
-
-                _hideFlyoutIfLeavingSearchControl: function SearchBox_hideFlyoutIfLeavingSearchControl(targetElement) {
-                    if (!this._isFlyoutShown()) {
-                        return;
-                    }
-                    if (!this._isElementInSearchControl(targetElement)) {
-                        this._hideFlyout();
-                    }
-                },
-
-                _wireupWinRTEvents: function SearchBox_wireupWinRTEvents() {
-                    this._searchSuggestions.addEventListener("vectorchanged", this._suggestionsChangedHandlerBind);
-                    this._searchSuggestionManager.addEventListener("suggestionsrequested", this._suggestionsRequestedHandlerBind);
-                },
-
-                _suggestionsChangedHandler: function SearchBox_suggestionsChangedHandler(event) {
-                    var collectionChange = event.collectionChange || event.detail.collectionChange;
-                    var changeIndex = (+event.index === event.index) ? event.index : event.detail.index;
-                    var ChangeEnum = _SearchSuggestionManagerShim._CollectionChange;
-                    if (collectionChange === ChangeEnum.reset) {
-                        if (this._isFlyoutShown()) {
-                            this._hideFlyout();
-                        }
-                        this._suggestionsData.splice(0, this._suggestionsData.length);
-                    } else if (collectionChange === ChangeEnum.itemInserted) {
-                        var suggestion = this._searchSuggestions[changeIndex];
-                        this._suggestionsData.splice(changeIndex, 0, suggestion);
-
-                        this._showFlyout();
-
-                    } else if (collectionChange === ChangeEnum.itemRemoved) {
-                        if ((this._suggestionsData.length === 1)) {
-                            _ElementUtilities._setActive(this._inputElement);
-
-                            this._hideFlyout();
-                        }
-                        this._suggestionsData.splice(changeIndex, 1);
-                    } else if (collectionChange === ChangeEnum.itemChanged) {
-                        var suggestion = this._searchSuggestions[changeIndex];
-                        if (suggestion !== this._suggestionsData.getAt(changeIndex)) {
-                            this._suggestionsData.setAt(changeIndex, suggestion);
-                        } else {
-                            // If the suggestions manager gives us an identical item, it means that only the hit highlighted text has changed.
-                            var existingElement = this._repeater.elementFromIndex(changeIndex);
-                            if (_ElementUtilities.hasClass(existingElement, ClassName.searchBoxSuggestionQuery)) {
-                                this._addHitHighlightedText(existingElement, suggestion, suggestion.text);
-                            } else {
-                                var resultSuggestionDiv = existingElement.querySelector("." + ClassName.searchBoxSuggestionResultText);
-                                if (resultSuggestionDiv) {
-                                    this._addHitHighlightedText(resultSuggestionDiv, suggestion, suggestion.text);
-                                    var resultSuggestionDetailDiv = existingElement.querySelector("." + ClassName.searchBoxSuggestionResultDetailedText);
-                                    if (resultSuggestionDetailDiv) {
-                                        this._addHitHighlightedText(resultSuggestionDetailDiv, suggestion, suggestion.detailText);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (_Global.document.activeElement === this._inputElement) {
-                        this._updateFakeFocus();
-                    }
-                },
-
-                _suggestionsRequestedHandler: function SearchBox_suggestionsRequestedHandler(event) {
-                    // get the most up to date value of the input langauge from WinRT if available
-                    if (_WinRT.Windows.Globalization.Language) {
-                        this._lastKeyPressLanguage = _WinRT.Windows.Globalization.Language.currentInputMethodLanguageTag;
-                    }
-
-                    var request = event.request || event.detail.request;
-                    var deferral;
-                    this._fireEvent(SearchBox._EventName.suggestionsrequested, {
-                        setPromise: function (promise) {
-                            deferral = request.getDeferral();
-                            promise.then(function () {
-                                deferral.complete();
-                            });
-                        },
-                        searchSuggestionCollection: request.searchSuggestionCollection,
-                        language: this._lastKeyPressLanguage,
-                        linguisticDetails: this._getLinguisticDetails(true /*useCache*/, true /*createFilled*/),
-                        queryText: this._inputElement.value
-                    });
-                },
-
-                _fireEvent: function SearchBox_fireEvent(type, detail) {
-                    // Returns true if ev.preventDefault() was not called
-                    var event = _Global.document.createEvent("CustomEvent");
-                    event.initCustomEvent(type, true, true, detail);
-                    return this.element.dispatchEvent(event);
-                },
-
-                _requestingFocusOnKeyboardInputHandler: function SearchBox_requestingFocusOnKeyboardInputHandler() {
-                    this._fireEvent(SearchBox._EventName.receivingfocusonkeyboardinput, null);
-                    if (_Global.document.activeElement !== this._inputElement) {
-                        try {
-                            this._inputElement.focus();
-                        } catch (e) {
-                        }
-                    }
-                },
-
-                _keydownCaptureHandler: function SearchBox_keydownCaptureHandler(event) {
-                    if (this._focusOnKeyboardInput && this._shouldKeyTriggerTypeToSearch(event)) {
-                        this._requestingFocusOnKeyboardInputHandler(event);
-                    }
-                },
-
-                _frameLoadCaptureHandler: function SearchBox_frameLoadCaptureHandler(event) {
-                    if (this._focusOnKeyboardInput) {
-                        this._updateKeydownCaptureListeners(event.target.contentWindow, true /*add*/);
-                    }
-                },
-
-                _updateKeydownCaptureListeners: function SearchBox_updateTypeToSearchListeners(win, add) {
-                    // Register for child frame keydown events in order to support FocusOnKeyboardInput
-                    // when focus is in a child frame.  Also register for child frame load events so
-                    // it still works after frame navigations.
-                    // Note: This won't catch iframes added programmatically later, but that can be worked
-                    // around by toggling FocusOnKeyboardInput off/on after the new iframe is added.
-                    try {
-                        if (add) {
-                            win.document.addEventListener('keydown', this._keydownCaptureHandlerBind, true);
-                        } else {
-                            win.document.removeEventListener('keydown', this._keydownCaptureHandlerBind, true);
-                        }
-                    } catch (e) { // if the IFrame crosses domains, we'll get a permission denied error
-                    }
-
-                    if (win.frames) {
-                        for (var i = 0, l = win.frames.length; i < l; i++) {
-                            var childWin = win.frames[i];
-                            this._updateKeydownCaptureListeners(childWin, add);
-
-                            try {
-                                if (add) {
-                                    if (childWin.frameElement) {
-                                        childWin.frameElement.addEventListener('load', this._frameLoadCaptureHandlerBind, true);
-                                    }
-                                } else {
-                                    if (childWin.frameElement) {
-                                        childWin.frameElement.removeEventListener('load', this._frameLoadCaptureHandlerBind, true);
-                                    }
-                                }
-                            } catch (e) { // if the IFrame crosses domains, we'll get a permission denied error
-                            }
-                        }
-                    }
-                },
-
-                _shouldKeyTriggerTypeToSearch: function SearchBox_shouldKeyTriggerTypeToSearch(event) {
-                    var shouldTrigger = false;
-                    // First, check if a metaKey is pressed (only applies to MacOS). If so, do nothing here.
-                    if (!event.metaKey) {
-                        // We also don't handle CTRL/ALT combinations, unless ALTGR is also set. Since there is no shortcut for checking AltGR,
-                        // we need to use getModifierState, however, Safari currently doesn't support this.
-                        if ((!event.ctrlKey && !event.altKey) || (event.getModifierState && event.getModifierState("AltGraph"))) {
-                            // Show on most keys for visible characters like letters, numbers, etc.
-                            switch (event.keyCode) {
-                                case 0x30:  //0x30 0 key
-                                case 0x31:  //0x31 1 key
-                                case 0x32:  //0x32 2 key
-                                case 0x33:  //0x33 3 key
-                                case 0x34:  //0x34 4 key
-                                case 0x35:  //0x35 5 key
-                                case 0x36:  //0x36 6 key
-                                case 0x37:  //0x37 7 key
-                                case 0x38:  //0x38 8 key
-                                case 0x39:  //0x39 9 key
-
-                                case 0x41:  //0x41 A key
-                                case 0x42:  //0x42 B key
-                                case 0x43:  //0x43 C key
-                                case 0x44:  //0x44 D key
-                                case 0x45:  //0x45 E key
-                                case 0x46:  //0x46 F key
-                                case 0x47:  //0x47 G key
-                                case 0x48:  //0x48 H key
-                                case 0x49:  //0x49 I key
-                                case 0x4A:  //0x4A J key
-                                case 0x4B:  //0x4B K key
-                                case 0x4C:  //0x4C L key
-                                case 0x4D:  //0x4D M key
-                                case 0x4E:  //0x4E N key
-                                case 0x4F:  //0x4F O key
-                                case 0x50:  //0x50 P key
-                                case 0x51:  //0x51 Q key
-                                case 0x52:  //0x52 R key
-                                case 0x53:  //0x53 S key
-                                case 0x54:  //0x54 T key
-                                case 0x55:  //0x55 U key
-                                case 0x56:  //0x56 V key
-                                case 0x57:  //0x57 W key
-                                case 0x58:  //0x58 X key
-                                case 0x59:  //0x59 Y key
-                                case 0x5A:  //0x5A Z key
-
-                                case 0x60:  // VK_NUMPAD0,             //0x60 Numeric keypad 0 key
-                                case 0x61:  // VK_NUMPAD1,             //0x61 Numeric keypad 1 key
-                                case 0x62:  // VK_NUMPAD2,             //0x62 Numeric keypad 2 key
-                                case 0x63:  // VK_NUMPAD3,             //0x63 Numeric keypad 3 key
-                                case 0x64:  // VK_NUMPAD4,             //0x64 Numeric keypad 4 key
-                                case 0x65:  // VK_NUMPAD5,             //0x65 Numeric keypad 5 key
-                                case 0x66:  // VK_NUMPAD6,             //0x66 Numeric keypad 6 key
-                                case 0x67:  // VK_NUMPAD7,             //0x67 Numeric keypad 7 key
-                                case 0x68:  // VK_NUMPAD8,             //0x68 Numeric keypad 8 key
-                                case 0x69:  // VK_NUMPAD9,             //0x69 Numeric keypad 9 key
-                                case 0x6A:  // VK_MULTIPLY,            //0x6A Multiply key
-                                case 0x6B:  // VK_ADD,                 //0x6B Add key
-                                case 0x6C:  // VK_SEPARATOR,           //0x6C Separator key
-                                case 0x6D:  // VK_SUBTRACT,            //0x6D Subtract key
-                                case 0x6E:  // VK_DECIMAL,             //0x6E Decimal key
-                                case 0x6F:  // VK_DIVIDE,              //0x6F Divide key
-
-                                case 0xBA:  // VK_OEM_1,               //0xBA Used for miscellaneous characters; it can vary by keyboard. For the US standard keyboard, the ';:' key
-                                case 0xBB:  // VK_OEM_PLUS,            //0xBB For any country/region, the '+' key
-                                case 0xBC:  // VK_OEM_COMMA,           //0xBC For any country/region, the ',' key
-                                case 0xBD:  // VK_OEM_MINUS,           //0xBD For any country/region, the '-' key
-                                case 0xBE:  // VK_OEM_PERIOD,          //0xBE For any country/region, the '.' key
-                                case 0xBF:  // VK_OEM_2,               //0xBF Used for miscellaneous characters; it can vary by keyboard. For the US standard keyboard, the '/?' key
-                                case 0xC0:  // VK_OEM_3,               //0xC0 Used for miscellaneous characters; it can vary by keyboard. For the US standard keyboard, the '`~' key
-
-                                case 0xDB:  // VK_OEM_4,               //0xDB Used for miscellaneous characters; it can vary by keyboard. For the US standard keyboard, the '[{' key
-                                case 0xDC:  // VK_OEM_5,               //0xDC Used for miscellaneous characters; it can vary by keyboard. For the US standard keyboard, the '\|' key
-                                case 0xDD:  // VK_OEM_6,               //0xDD Used for miscellaneous characters; it can vary by keyboard. For the US standard keyboard, the ']}' key
-                                case 0xDE:  // VK_OEM_7,               //0xDE Used for miscellaneous characters; it can vary by keyboard. For the US standard keyboard, the 'single-quote/double-quote' key
-                                case 0xDF:  // VK_OEM_8,               //0xDF Used for miscellaneous characters; it can vary by keyboard.
-
-                                case 0xE2:  // VK_OEM_102,             //0xE2 Either the angle bracket key or the backslash key on the RT 102-key keyboard
-
-                                case 0xE5:  // VK_PROCESSKEY,          //0xE5 IME PROCESS key
-
-                                case 0xE7:  // VK_PACKET,              //0xE7 Used to pass Unicode characters as if they were keystrokes. The VK_PACKET key is the low word of a 32-bit Virtual Key value used for non-keyboard input methods. For more information, see Remark in KEYBDINPUT, SendInput, WM_KEYDOWN, and WM_KEYUP
-                                    shouldTrigger = true;
-                                    break;
-                            }
-                        }
-                    }
-                    return shouldTrigger;
-                },
-
-                _hasLinguisticDetailsChanged: function SearchBox_hasLinguisticDetailsChanged(newLinguisticDetails) {
-                    var hasLinguisticDetailsChanged = false;
-                    if ((this._prevLinguisticDetails.queryTextCompositionStart !== newLinguisticDetails.queryTextCompositionStart) ||
-                        (this._prevLinguisticDetails.queryTextCompositionLength !== newLinguisticDetails.queryTextCompositionLength) ||
-                        (this._prevLinguisticDetails.queryTextAlternatives.length !== newLinguisticDetails.queryTextAlternatives.length)) {
-                        hasLinguisticDetailsChanged = true;
-                    }
-                    this._prevLinguisticDetails = newLinguisticDetails;
-                    return hasLinguisticDetailsChanged;
-                },
-
-                _isProcessingImeFocusLossKey: function SearchBox_isProcessingImeFocusLossKey() {
-                    return this._isProcessingDownKey || this._isProcessingUpKey || this._isProcessingTabKey || this._isProcessingEnterKey;
-                },
-
-                _updateQueryTextWithSuggestionText: function SearchBox_updateQueryTextWithSuggestionText(suggestionIndex) {
-                    if ((suggestionIndex >= 0) && (suggestionIndex < this._suggestionsData.length)) {
-                        this.queryText = this._suggestionsData.getAt(suggestionIndex).text;
-                    }
-                }
-
-            }, {
-                _EventName: {
-                    querychanged: EventName.querychanged,
-                    querysubmitted: EventName.querysubmitted,
-                    resultsuggestionchosen: EventName.resultsuggestionchosen,
-                    suggestionsrequested: EventName.suggestionsrequested,
-                    receivingfocusonkeyboardinput: EventName.receivingfocusonkeyboardinput
-                },
-
-                _Constants: {
-                    MIN_POPUP_HEIGHT: 152,
-                },
-
-                createResultSuggestionImage: function SearchBox_createResultSuggestionImage(url) {
-                    /// <signature helpKeyword="WinJS.UI.SearchBox.createResultSuggestionImage">
-                    /// <summary locid="WinJS.UI.SearchBox.createResultSuggestionImage">
-                    /// Creates the image argument for SearchSuggestionCollection.appendResultSuggestion.
-                    /// </summary>
-                    /// <param name="url" type="string" locid="WinJS.UI.SearchBox.SearchBox_createResultSuggestionImage_p:url">
-                    /// The url of the image.
-                    /// </param>
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </signature>
-                    if (_WinRT.Windows.Foundation.Uri && _WinRT.Windows.Storage.Streams.RandomAccessStreamReference) {
-                        return _WinRT.Windows.Storage.Streams.RandomAccessStreamReference.createFromUri(new _WinRT.Windows.Foundation.Uri(url));
-                    }
-                    return url;
-                },
-
-                _getKeyModifiers: function SearchBox_getKeyModifiers(ev) {
-
-                    // Returns the same value as http://msdn.microsoft.com/en-us/library/windows/apps/xaml/windows.system.virtualkeymodifiers
-                    var VirtualKeys = {
-                        ctrlKey: 1,
-                        altKey: 2,
-                        shiftKey: 4
-                    };
-
-                    var keyModifiers = 0;
-                    if (ev.ctrlKey) {
-                        keyModifiers |= VirtualKeys.ctrlKey;
-                    }
-                    if (ev.altKey) {
-                        keyModifiers |= VirtualKeys.altKey;
-                    }
-                    if (ev.shiftKey) {
-                        keyModifiers |= VirtualKeys.shiftKey;
-                    }
-                    return keyModifiers;
-                },
-
-                _sortAndMergeHits: function searchBox_sortAndMergeHits(hitsProvided) {
-                    var reducedHits = [];
-                    if (hitsProvided) {
-                        // Copy hitsprovided array as winrt objects are immutable.
-                        var hits = new Array(hitsProvided.length);
-                        for (var i = 0; i < hitsProvided.length; i++) {
-                            hits.push({ startPosition: hitsProvided[i].startPosition, length: hitsProvided[i].length });
-                        }
-                        hits.sort(SearchBox._hitStartPositionAscendingSorter);
-                        hits.reduce(SearchBox._hitIntersectionReducer, reducedHits);
-                    }
-                    return reducedHits;
-                },
-
-                _hitStartPositionAscendingSorter: function searchBox_hitStartPositionAscendingSorter(firstHit, secondHit) {
-                    var returnValue = 0;
-                    if (firstHit.startPosition < secondHit.startPosition) {
-                        returnValue = -1;
-                    } else if (firstHit.startPosition > secondHit.startPosition) {
-                        returnValue = 1;
-                    }
-                    return returnValue;
-                },
-
-                _hitIntersectionReducer: function searchBox_hitIntersectionReducer(reducedHits, nextHit, currentIndex) {
-                    if (currentIndex === 0) {
-                        reducedHits.push(nextHit);
-                    } else {
-                        var curHit = reducedHits[reducedHits.length - 1];
-                        var curHitEndPosition = curHit.startPosition + curHit.length;
-                        if (nextHit.startPosition <= curHitEndPosition) {
-                            // The next hit intersects or is next to current hit. Merge it.
-                            var nextHitEndPosition = nextHit.startPosition + nextHit.length;
-                            if (nextHitEndPosition > curHitEndPosition) {
-                                curHit.length = nextHitEndPosition - curHit.startPosition;
-                            }
-                        } else {
-                            // No intersection, simply add to reduced list.
-                            reducedHits.push(nextHit);
-                        }
-                    }
-                    return reducedHits;
-                },
-
-                _isTypeToSearchKey: function searchBox_isTypeToSearchKey(event) {
-                    if (event.shiftKey || event.ctrlKey || event.altKey) {
-                        return false;
-                    }
-                    return true;
-                }
-            });
-            _Base.Class.mix(SearchBox, _Control.DOMEventMixin);
-            return SearchBox;
-        })
-    });
-
-});
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-/// <dictionary>appbar,Flyout,Flyouts,registeredforsettings,SettingsFlyout,Statics,Syriac</dictionary>
-define('WinJS/Controls/SettingsFlyout',[
-    '../Core/_Global',
-    '../Core/_WinRT',
-    '../Core/_Base',
-    '../Core/_BaseUtils',
-    '../Core/_ErrorFromName',
-    '../Core/_Resources',
-    '../Core/_WriteProfilerMark',
-    '../Animations',
-    '../Pages',
-    '../Promise',
-    '../Utilities/_Dispose',
-    '../Utilities/_ElementUtilities',
-    '../Utilities/_ElementListUtilities',
-    '../Utilities/_Hoverable',
-    './AppBar/_Constants',
-    './Flyout/_Overlay',
-    'require-style!less/desktop/controls',
-    'require-style!less/phone/controls'
-    ], function settingsFlyoutInit(_Global,_WinRT, _Base, _BaseUtils, _ErrorFromName, _Resources, _WriteProfilerMark, Animations, Pages, Promise, _Dispose, _ElementUtilities, _ElementListUtilities, _Hoverable, _Constants, _Overlay) {
-    "use strict";
-
-    _Base.Namespace.define("WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.SettingsFlyout">Provides users with fast, in-context access to settings that affect the current app.</summary>
-        /// <compatibleWith platform="Windows" minVersion="8.0"/>
-        /// </field>
-        /// <name locid="WinJS.UI.SettingsFlyout_name">Settings Flyout</name>
-        /// <icon src="ui_winjs.ui.settingsflyout.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.settingsflyout.16x16.png" width="16" height="16" />
-        /// <htmlSnippet supportsContent="true"><![CDATA[<div data-win-control="WinJS.UI.SettingsFlyout">
-        /// <div class="win-header">
-        /// <button type="button" onclick="WinJS.UI.SettingsFlyout.show()" class="win-backbutton"></button>
-        /// <div class="win-label">Custom Settings</div>
-        /// </div>
-        /// <div class="win-content">
-        /// {Your Content Here}
-        /// </div>
-        /// </div>]]></htmlSnippet>
-        /// <event name="beforeshow" locid="WinJS.UI.SettingsFlyout_e:beforeshow">Raised just before showing a SettingsFlyout.</event>
-        /// <event name="aftershow" locid="WinJS.UI.SettingsFlyout_e:aftershow">Raised immediately after a SettingsFlyout is fully shown.</event>
-        /// <event name="beforehide" locid="WinJS.UI.SettingsFlyout_e:beforehide">Raised just before hiding a SettingsFlyout.</event>
-        /// <event name="afterhide" locid="WinJS.UI.SettingsFlyout_e:afterhide">Raised immediately after a SettingsFlyout is fully hidden.</event>
-        /// <part name="settings" class="win-settingsflyout" locid="WinJS.UI.SettingsFlyout_part:settings">The SettingsFlyout control itself.</part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        SettingsFlyout: _Base.Namespace._lazy(function () {
-            var Key = _ElementUtilities.Key;
-
-            var settingsPageIsFocusedOnce;
-
-            // Constants for width
-            var settingsNarrow = "narrow",
-                settingsWide = "wide";
-
-            // Determine if the settings pane (system language) is RTL or not.
-            function _shouldAnimateFromLeft() {
-                if (_WinRT.Windows.UI.ApplicationSettings.SettingsEdgeLocation) {
-                    var appSettings = _WinRT.Windows.UI.ApplicationSettings;
-                    return (appSettings.SettingsPane.edge === appSettings.SettingsEdgeLocation.left);
-                } else {
-                    return false;
-                }
-            }
-
-            // Get the settings control by matching the settingsCommandId
-            // if no match we'll try to match element id
-            function _getChildSettingsControl(parentElement, id) {
-                var settingElements = parentElement.querySelectorAll("." + _Constants.settingsFlyoutClass);
-                var retValue,
-                    control;
-                for (var i = 0; i < settingElements.length; i++) {
-                    control = settingElements[i].winControl;
-                    if (control) {
-                        if (control.settingsCommandId === id) {
-                            retValue = control;
-                            break;
-                        }
-                        if (settingElements[i].id === id) {
-                            retValue = retValue || control;
-                        }
-                    }
-                }
-
-                return retValue;
-            }
-
-            var SettingsFlyout = _Base.Class.derive(_Overlay._Overlay, function SettingsFlyout_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.SettingsFlyout.SettingsFlyout">
-                /// <summary locid="WinJS.UI.SettingsFlyout.constructor">Creates a new SettingsFlyout control.</summary>
-                /// <param name="element" type="HTMLElement" domElement="true" locid="WinJS.UI.SettingsFlyout.constructor_p:element">
-                /// The DOM element that will host the control.
-                /// </param>
-                /// <param name="options" type="Object" locid="WinJS.UI.SettingsFlyout.constructor_p:options">
-                /// The set of properties and values to apply to the new SettingsFlyout.
-                /// </param>
-                /// <returns type="WinJS.UI.SettingsFlyout" locid="WinJS.UI.SettingsFlyout.constructor_returnValue">The new SettingsFlyout control.</returns>
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </signature>
-
-                // Make sure there's an input element
-                this._element = element || _Global.document.createElement("div");
-                this._id = this._element.id || _ElementUtilities._uniqueID(this._element);
-                this._writeProfilerMark("constructor,StartTM");
-
-                // Call the base overlay constructor helper
-                this._baseOverlayConstructor(this._element, options);
-
-                this._addFirstDiv();
-                this._addFinalDiv();
-
-                // Handle "esc" & "tab" key presses
-                this._element.addEventListener("keydown", this._handleKeyDown, true);
-
-                // Make a click eating div
-                _Overlay._Overlay._createClickEatingDivAppBar();
-
-                // Start settings hidden
-                this._element.style.visibilty = "hidden";
-                this._element.style.display = "none";
-
-                // Attach our css class
-                _ElementUtilities.addClass(this._element, _Constants.settingsFlyoutClass);
-
-                // apply the light theme styling to the win-content elements inside the SettingsFlyout
-                _ElementListUtilities.query("div.win-content", this._element).
-                    forEach(function (e) {
-                        if (!_ElementUtilities._matchesSelector(e, '.win-ui-dark, .win-ui-dark *')){
-                            _ElementUtilities.addClass(e, _Constants.flyoutLightClass);
-                        }
-                    });
-
-                // Make sure we have an ARIA role
-                var role = this._element.getAttribute("role");
-                if (role === null || role === "" || role === undefined) {
-                    this._element.setAttribute("role", "dialog");
-                }
-                var label = this._element.getAttribute("aria-label");
-                if (label === null || label === "" || label === undefined) {
-                    this._element.setAttribute("aria-label", strings.ariaLabel);
-                }
-
-                // Make sure _Overlay event handlers are hooked up
-                this._addOverlayEventHandlers(true);
-
-                // Make sure animations are hooked up
-                this._currentAnimateIn = this._animateSlideIn;
-                this._currentAnimateOut = this._animateSlideOut;
-                this._writeProfilerMark("constructor,StopTM");
-            }, {
-                // Public Properties
-
-                /// <field type="String" defaultValue="narrow" oamOptionsDatatype="WinJS.UI.SettingsFlyout.width" locid="WinJS.UI.SettingsFlyout.width" helpKeyword="WinJS.UI.SettingsFlyout.width">
-                /// Width of the SettingsFlyout, "narrow", or "wide".
-                /// <deprecated type="deprecate">
-                /// SettingsFlyout.width may be altered or unavailable in future versions. Instead, style the CSS width property on elements with the .win-settingsflyout class.
-                /// </deprecated>
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                width: {
-                    get: function () {
-                        return this._width;
-                    },
-
-                    set: function (value) {
-                        _ElementUtilities._deprecated(strings.widthDeprecationMessage);
-                        if (value === this._width) {
-                            return;
-                        }
-                        // Get rid of old class
-                        if (this._width === settingsNarrow) {
-                            _ElementUtilities.removeClass(this._element, _Constants.narrowClass);
-                        } else if (this._width === settingsWide) {
-                            _ElementUtilities.removeClass(this._element, _Constants.wideClass);
-                        }
-                        this._width = value;
-
-                        // Attach our new css class
-                        if (this._width === settingsNarrow) {
-                            _ElementUtilities.addClass(this._element, _Constants.narrowClass);
-                        } else if (this._width === settingsWide) {
-                            _ElementUtilities.addClass(this._element, _Constants.wideClass);
-                        }
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.SettingsFlyout.settingsCommandId" helpKeyword="WinJS.UI.SettingsFlyout.settingsCommandId">
-                /// Define the settings command Id for the SettingsFlyout control.
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </field>
-                settingsCommandId: {
-                    get: function () {
-                        return this._settingsCommandId;
-                    },
-
-                    set: function (value) {
-                        this._settingsCommandId = value;
-                    }
-                },
-
-                show: function () {
-                    /// <signature helpKeyword="WinJS.UI.SettingsFlyout.show">
-                    /// <summary locid="WinJS.UI.SettingsFlyout.show">
-                    /// Shows the SettingsFlyout, if hidden.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                    /// </signature>
-                    // Just call private version to make appbar flags happy
 
                     // Don't do anything if disabled
                     if (this.disabled) {
                         return;
                     }
-                    this._writeProfilerMark("show,StartTM"); // The corresponding "stop" profiler mark is handled in _Overlay._baseEndShow().
-                    this._show();
+
+                    commandBar.isOpen = false;
+
+                    this._writeProfilerMark("hide,StopTM");
                 },
 
-                _dispose: function SettingsFlyout_dispose() {
-                    _Dispose.disposeSubTree(this.element);
-                    this._dismiss();
-                },
-
-                _show: function SettingsFlyout_show() {
-                    // We call our base "_baseShow" because SettingsFlyout overrides show
-                    this._baseShow();
-                    // Need click-eating div to be visible,
-                    // (even if now hiding, we'll show and need click eater)
-                    _Overlay._Overlay._showClickEatingDivAppBar();
-                },
-
-                _endShow: function SettingsFlyout_endShow() {
-                    // Clean up after showing
-                    this._initAfterAnimation();
-                },
-
-                _initAfterAnimation: function SettingsFlyout_initAfterAnimation() {
-                    settingsPageIsFocusedOnce = 0;
-
-                    // Verify that the firstDiv and finalDiv are in the correct location.
-                    // Move them to the correct location or add them if they are not.
-                    if (!_ElementUtilities.hasClass(this.element.children[0], _Constants.firstDivClass)) {
-                        var firstDiv = this.element.querySelectorAll(".win-first");
-                        if (firstDiv && firstDiv.length > 0) {
-                            firstDiv.item(0).parentNode.removeChild(firstDiv.item(0));
-                        }
-
-                        this._addFirstDiv();
-                    }
-
-                    // Set focus to the firstDiv
-                    if (this.element.children[0]) {
-                        _ElementUtilities._addEventListener(this.element.children[0], "focusout", function () { settingsPageIsFocusedOnce = 1; }, false);
-                        this.element.children[0].focus();
-                    }
-
-                    if (!_ElementUtilities.hasClass(this.element.children[this.element.children.length - 1], _Constants.finalDivClass)) {
-                        var finalDiv = this.element.querySelectorAll(".win-final");
-                        if (finalDiv && finalDiv.length > 0) {
-                            finalDiv.item(0).parentNode.removeChild(finalDiv.item(0));
-                        }
-
-                        this._addFinalDiv();
-                    }
-
-                    this._setBackButtonsAriaLabel();
-                },
-
-                _setBackButtonsAriaLabel: function SettingsFlyout_setBackButtonsAriaLabel() {
-                    var backbuttons = this.element.querySelectorAll(".win-backbutton");
-                    var label;
-                    for (var i = 0; i < backbuttons.length; i++) {
-                        label = backbuttons[i].getAttribute("aria-label");
-                        if (label === null || label === "" || label === undefined) {
-                            backbuttons[i].setAttribute("aria-label", strings.backbuttonAriaLabel);
-                        }
-                    }
-                },
-
-                hide: function () {
-                    /// <signature helpKeyword="WinJS.UI.SettingsFlyout.hide">
-                    /// <summary locid="WinJS.UI.SettingsFlyout.hide">
-                    /// Hides the SettingsFlyout, if visible, regardless of other state.
+                dispose: function AppBar_dispose() {
+                    /// <signature helpKeyword="WinJS.UI.AppBar.dispose">
+                    /// <summary locid="WinJS.UI.AppBar.dispose">
+                    /// Disposes this AppBar.
                     /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.0"/>
                     /// </signature>
-                    // Just call private version to make appbar flags happy
-                    this._writeProfilerMark("hide,StartTM"); // The corresponding "stop" profiler mark is handled in _Overlay._baseEndHide().
-                    this._hide();
-                },
-
-                _hide: function SettingsFlyout_hide() {
-                    if (this._baseHide()) {
-                        // Need click-eating div to be hidden
-                        _Overlay._Overlay._hideClickEatingDivAppBar();
-                    }
-                },
-
-                // SettingsFlyout animations
-                _animateSlideIn: function SettingsFlyout_animateSlideIn() {
-                    var animateFromLeft = _shouldAnimateFromLeft();
-                    var offset = animateFromLeft ? "-100px" : "100px";
-                    _ElementListUtilities.query("div.win-content", this._element).
-                        forEach(function (e) { Animations.enterPage(e, { left: offset }); });
-
-                    var where,
-                        width = this._element.offsetWidth;
-                    // Slide in from right side or left side?
-                    if (animateFromLeft) {
-                        // RTL
-                        where = { top: "0px", left: "-" + width + "px" };
-                        this._element.style.right = "auto";
-                        this._element.style.left = "0px";
-                    } else {
-                        // From right side
-                        where = { top: "0px", left: width + "px" };
-                        this._element.style.right = "0px";
-                        this._element.style.left = "auto";
-                    }
-
-                    this._element.style.opacity = 1;
-                    this._element.style.visibility = "visible";
-
-                    return Animations.showPanel(this._element, where);
-                },
-
-                _animateSlideOut: function SettingsFlyout_animateSlideOut() {
-                    var where,
-                        width = this._element.offsetWidth;
-                    if (_shouldAnimateFromLeft()) {
-                        // RTL
-                        where = { top: "0px", left: width + "px" };
-                        this._element.style.right = "auto";
-                        this._element.style.left = "-" + width + "px";
-                    } else {
-                        // From right side
-                        where = { top: "0px", left: "-" + width + "px" };
-                        this._element.style.right = "-" + width + "px";
-                        this._element.style.left = "auto";
-                    }
-
-                    return Animations.showPanel(this._element, where);
-                },
-
-                _fragmentDiv: {
-                    get: function SettingsFlyout_fragmentDiv_get() {
-                        return this._fragDiv;
-                    },
-
-                    set: function SettingsFlyout_fragmentDiv_set(value) {
-                        this._fragDiv = value;
-                    }
-                },
-
-                _unloadPage: function SettingsFlyout_unloadPage(event) {
-                    var settingsControl = event.currentTarget.winControl;
-                    settingsControl.removeEventListener(_Overlay._Overlay.afterHide, this._unloadPage, false);
-
-                    Promise.as().then(function () {
-                        if (settingsControl._fragmentDiv) {
-                            _Global.document.body.removeChild(settingsControl._fragmentDiv);
-                            settingsControl._fragmentDiv = null;
-                        }
-                    });
-                },
-
-                _dismiss: function SettingsFlyout_dismiss() {
-                    this.addEventListener(_Overlay._Overlay.afterHide, this._unloadPage, false);
-                    this._hide();
-                },
-
-                _handleKeyDown: function SettingsFlyout_handleKeyDown(event) {
-                    if (event.keyCode === Key.escape) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        this.winControl._dismiss();
-                    } else if ((event.keyCode === Key.space || event.keyCode === Key.enter)
-                           && (this.children[0] === _Global.document.activeElement)) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        this.winControl._dismiss();
-                    } else if (event.shiftKey && event.keyCode === Key.tab
-                    && this.children[0] === _Global.document.activeElement) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        var _elms = this.getElementsByTagName("*");
-
-                        for (var i = _elms.length - 2; i >= 0; i--) {
-                            _elms[i].focus();
-
-                            if (_elms[i] === _Global.document.activeElement) {
-                                break;
-                            }
-                        }
-                    }
-                },
-
-                _focusOnLastFocusableElementFromParent: function SettingsFlyout_focusOnLastFocusableElementFromParent() {
-                    var active = _Global.document.activeElement;
-                    if (!settingsPageIsFocusedOnce || !active || !_ElementUtilities.hasClass(active, _Constants.firstDivClass)) {
-                        return;
-                    }
-
-                    var _elms = this.parentElement.getElementsByTagName("*");
-
-                    // There should be at least 1 element in addition to the firstDiv & finalDiv
-                    if (_elms.length <= 2) {
-                        return;
-                    }
-
-                    // Get the tabIndex set to the finalDiv (which is the highest)
-                    var _highestTabIndex = _elms[_elms.length - 1].tabIndex;
-
-                    // If there are positive tabIndices, set focus to the element with the highest tabIndex.
-                    // Otherwise set focus to the last focusable element in DOM order.
-                    var i;
-                    if (_highestTabIndex) {
-                        for (i = _elms.length - 2; i > 0; i--) {
-                            if (_elms[i].tabIndex === _highestTabIndex) {
-                                _elms[i].focus();
-                                break;
-                            }
-                        }
-                    } else {
-                        for (i = _elms.length - 2; i > 0; i--) {
-                            // Skip <div> with undefined tabIndex (To work around Win8 bug #622245)
-                            if ((_elms[i].tagName !== "DIV") || (_elms[i].getAttribute("tabIndex") !== null)) {
-                                _elms[i].focus();
-
-                                if (_elms[i] === _Global.document.activeElement) {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                },
-
-                _focusOnFirstFocusableElementFromParent: function SettingsFlyout_focusOnFirstFocusableElementFromParent() {
-                    var active = _Global.document.activeElement;
-                    if (!active || !_ElementUtilities.hasClass(active, _Constants.finalDivClass)) {
-                        return;
-                    }
-                    var _elms = this.parentElement.getElementsByTagName("*");
-
-                    // There should be at least 1 element in addition to the firstDiv & finalDiv
-                    if (_elms.length <= 2) {
-                        return;
-                    }
-
-                    // Get the tabIndex set to the firstDiv (which is the lowest)
-                    var _lowestTabIndex = _elms[0].tabIndex;
-
-                    // If there are positive tabIndices, set focus to the element with the lowest tabIndex.
-                    // Otherwise set focus to the first focusable element in DOM order.
-                    var i;
-                    if (_lowestTabIndex) {
-                        for (i = 1; i < _elms.length - 1; i++) {
-                            if (_elms[i].tabIndex === _lowestTabIndex) {
-                                _elms[i].focus();
-                                break;
-                            }
-                        }
-                    } else {
-                        for (i = 1; i < _elms.length - 1; i++) {
-                            // Skip <div> with undefined tabIndex (To work around Win8 bug #622245)
-                            if ((_elms[i].tagName !== "DIV") || (_elms[i].getAttribute("tabIndex") !== null)) {
-                                _elms[i].focus();
-
-                                if (_elms[i] === _Global.document.activeElement) {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                },
-
-                // Create and add a new first div to the beginning of the list
-                _addFirstDiv: function SettingsFlyout_addFirstDiv() {
-                    var _elms = this._element.getElementsByTagName("*");
-                    var _minTab = 0;
-                    for (var i = 0; i < _elms.length; i++) {
-                        if ((0 < _elms[i].tabIndex) && (_minTab === 0 || _elms[i].tabIndex < _minTab)) {
-                            _minTab = _elms[i].tabIndex;
-                        }
-                    }
-                    var firstDiv = _Global.document.createElement("div");
-                    firstDiv.className = _Constants.firstDivClass;
-                    firstDiv.style.display = "inline";
-                    firstDiv.setAttribute("role", "menuitem");
-                    firstDiv.setAttribute("aria-hidden", "true");
-                    firstDiv.tabIndex = _minTab;
-                    _ElementUtilities._addEventListener(firstDiv, "focusin", this._focusOnLastFocusableElementFromParent, false);
-
-                    // add to beginning
-                    if (this._element.children[0]) {
-                        this._element.insertBefore(firstDiv, this._element.children[0]);
-                    } else {
-                        this._element.appendChild(firstDiv);
-                    }
-                },
-
-                // Create and add a new final div to the end of the list
-                _addFinalDiv: function SettingsFlyout_addFinalDiv() {
-                    var _elms = this._element.getElementsByTagName("*");
-                    var _maxTab = 0;
-                    for (var i = 0; i < _elms.length; i++) {
-                        if (_elms[i].tabIndex > _maxTab) {
-                            _maxTab = _elms[i].tabIndex;
-                        }
-                    }
-                    var finalDiv = _Global.document.createElement("div");
-                    finalDiv.className = _Constants.finalDivClass;
-                    finalDiv.style.display = "inline";
-                    finalDiv.setAttribute("role", "menuitem");
-                    finalDiv.setAttribute("aria-hidden", "true");
-                    finalDiv.tabIndex = _maxTab;
-                    _ElementUtilities._addEventListener(finalDiv, "focusin", this._focusOnFirstFocusableElementFromParent, false);
-
-                    this._element.appendChild(finalDiv);
-                },
-
-                _writeProfilerMark: function SettingsFlyout_writeProfilerMark(text) {
-                    _WriteProfilerMark("WinJS.UI.SettingsFlyout:" + this._id + ":" + text);
-                }
-            });
-
-            // Statics
-            SettingsFlyout.show = function () {
-                /// <signature helpKeyword="WinJS.UI.SettingsFlyout.show">
-                /// <summary locid="WinJS.UI.SettingsFlyout.show_static">
-                /// Shows the SettingsPane UI, if hidden, regardless of other states.
-                /// </summary>
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </signature>
-                /// Show the main settings pane
-                if (_WinRT.Windows.UI.ApplicationSettings.SettingsPane) {
-                    _WinRT.Windows.UI.ApplicationSettings.SettingsPane.show();
-                }
-                // And hide the WWA one
-                var elements = _Global.document.querySelectorAll('div[data-win-control="WinJS.UI.SettingsFlyout"]');
-                var len = elements.length;
-                for (var i = 0; i < len; i++) {
-                    var settingsFlyout = elements[i].winControl;
-                    if (settingsFlyout) {
-                        settingsFlyout._dismiss();
-                    }
-                }
-            };
-
-            var _settingsEvent = { event: undefined };
-            SettingsFlyout.populateSettings = function (e) {
-                /// <signature helpKeyword="WinJS.UI.SettingsFlyout.populateSettings">
-                /// <summary locid="WinJS.UI.SettingsFlyout.populateSettings">
-                /// Loads a portion of the SettingsFlyout. Your app calls this when the user invokes a settings command and the WinJS.Application.onsettings event occurs.
-                /// </summary>
-                /// <param name="e" type="Object" locid="WinJS.UI.SettingsFlyout.populateSettings_p:e">
-                /// An object that contains information about the event, received from the WinJS.Application.onsettings event. The detail property of this object contains
-                /// the applicationcommands sub-property that you set to an array of settings commands.
-                /// </param>
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </signature>
-                _settingsEvent.event = e.detail;
-
-                if (_settingsEvent.event.applicationcommands) {
-                    var n = _WinRT.Windows.UI.ApplicationSettings;
-                    Object.keys(_settingsEvent.event.applicationcommands).forEach(function (name) {
-                        var setting = _settingsEvent.event.applicationcommands[name];
-                        if (!setting.title) { setting.title = name; }
-                        var command = new n.SettingsCommand(name, setting.title, SettingsFlyout._onSettingsCommand);
-                        _settingsEvent.event.e.request.applicationCommands.append(command);
-                    });
-                }
-            };
-
-            SettingsFlyout._onSettingsCommand = function (command) {
-                var id = command.id;
-                if (_settingsEvent.event.applicationcommands && _settingsEvent.event.applicationcommands[id]) {
-                    SettingsFlyout.showSettings(id, _settingsEvent.event.applicationcommands[id].href);
-                }
-            };
-
-            SettingsFlyout.showSettings = function (id, path) {
-                /// <signature helpKeyword="WinJS.UI.SettingsFlyout.showSettings">
-                /// <summary locid="WinJS.UI.SettingsFlyout.showSettings">
-                /// Show the SettingsFlyout using the settings element identifier (ID) and the path of the page that contains the settings element.
-                /// </summary>
-                /// <param name="id" type="String" locid="WinJS.UI.SettingsFlyout.showSettings_p:id">
-                /// The ID of the settings element.
-                /// </param>
-                /// <param name="path" type="Object" locid="WinJS.UI.SettingsFlyout.showSettings_p:path">
-                ///  The path of the page that contains the settings element.
-                /// </param>
-                /// <compatibleWith platform="Windows" minVersion="8.0"/>
-                /// </signature>
-                var control = _getChildSettingsControl(_Global.document, id);
-                if (control) {
-                    control.show();
-                } else if (path) {
-                    var divElement = _Global.document.createElement("div");
-                    divElement = _Global.document.body.appendChild(divElement);
-                    Pages.render(path, divElement).then(function () {
-                        control = _getChildSettingsControl(divElement, id);
-                        if (control) {
-                            control._fragmentDiv = divElement;
-                            control.show();
-                        } else {
-                            _Global.document.body.removeChild(divElement);
-                        }
-                    });
-                } else {
-                    throw new _ErrorFromName("WinJS.UI.SettingsFlyout.BadReference", strings.badReference);
-                }
-            };
-
-            var strings = {
-                get ariaLabel() { return _Resources._getWinJSString("ui/settingsFlyoutAriaLabel").value; },
-                get badReference() { return "Invalid argument: Invalid href to settings flyout fragment"; },
-                get backbuttonAriaLabel() { return _Resources._getWinJSString("ui/backbuttonarialabel").value; },
-                get widthDeprecationMessage() { return "SettingsFlyout.width may be altered or unavailable in future versions. Instead, style the CSS width property on elements with the .win-settingsflyout class."; },
-            };
-
-            return SettingsFlyout;
-        })
-    });
-
-
-});
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('WinJS/Controls/NavBar/_Command',[
-    'exports',
-    '../../Core/_Global',
-    '../../Core/_Base',
-    '../../Core/_ErrorFromName',
-    '../../Core/_Resources',
-    '../../ControlProcessor',
-    '../../Navigation',
-    '../../Utilities/_Control',
-    '../../Utilities/_ElementUtilities',
-    '../AppBar/_Icon'
-    ], function NavBarCommandInit(exports, _Global, _Base, _ErrorFromName, _Resources, ControlProcessor, Navigation, _Control, _ElementUtilities, _Icon) {
-    "use strict";
-
-    _Base.Namespace._moduleDefine(exports, "WinJS.UI", {
-        _WinPressed: _Base.Namespace._lazy(function () {
-            var WinPressed = _Base.Class.define(function _WinPressed_ctor(element) {
-                // WinPressed is the combination of :hover:active
-                // :hover is delayed by trident for touch by 300ms so if you want :hover:active to work quickly you need to
-                // use this behavior.
-                // :active does not bubble to its parent like :hover does so this is also useful for that scenario.
-                this._element = element;
-                _ElementUtilities._addEventListener(this._element, "pointerdown", this._MSPointerDownButtonHandler.bind(this));
-            }, {
-                _MSPointerDownButtonHandler: function _WinPressed_MSPointerDownButtonHandler(ev) {
-                    if (!this._pointerUpBound) {
-                        this._pointerUpBound = this._MSPointerUpHandler.bind(this);
-                        this._pointerCancelBound = this._MSPointerCancelHandler.bind(this);
-                        this._pointerOverBound = this._MSPointerOverHandler.bind(this);
-                        this._pointerOutBound = this._MSPointerOutHandler.bind(this);
-                    }
-
-                    if (ev.isPrimary) {
-                        if (this._pointerId) {
-                            this._resetPointer();
-                        }
-
-                        if (!_ElementUtilities._matchesSelector(ev.target, ".win-interactive, .win-interactive *")) {
-                            this._pointerId = ev.pointerId;
-
-                            _ElementUtilities._addEventListener(_Global, "pointerup", this._pointerUpBound, true);
-                            _ElementUtilities._addEventListener(_Global, "pointercancel", this._pointerCancelBound), true;
-                            _ElementUtilities._addEventListener(this._element, "pointerover", this._pointerOverBound, true);
-                            _ElementUtilities._addEventListener(this._element, "pointerout", this._pointerOutBound, true);
-
-                            _ElementUtilities.addClass(this._element, WinPressed.winPressed);
-                        }
-                    }
-                },
-
-                _MSPointerOverHandler: function _WinPressed_MSPointerOverHandler(ev) {
-                    if (this._pointerId === ev.pointerId) {
-                        _ElementUtilities.addClass(this._element, WinPressed.winPressed);
-                    }
-                },
-
-                _MSPointerOutHandler: function _WinPressed_MSPointerOutHandler(ev) {
-                    if (this._pointerId === ev.pointerId) {
-                        _ElementUtilities.removeClass(this._element, WinPressed.winPressed);
-                    }
-                },
-
-                _MSPointerCancelHandler: function _WinPressed_MSPointerCancelHandler(ev) {
-                    if (this._pointerId === ev.pointerId) {
-                        this._resetPointer();
-                    }
-                },
-
-                _MSPointerUpHandler: function _WinPressed_MSPointerUpHandler(ev) {
-                    if (this._pointerId === ev.pointerId) {
-                        this._resetPointer();
-                    }
-                },
-
-                _resetPointer: function _WinPressed_resetPointer() {
-                    this._pointerId = null;
-
-                    _ElementUtilities._removeEventListener(_Global, "pointerup", this._pointerUpBound, true);
-                    _ElementUtilities._removeEventListener(_Global, "pointercancel", this._pointerCancelBound, true);
-                    _ElementUtilities._removeEventListener(this._element, "pointerover", this._pointerOverBound, true);
-                    _ElementUtilities._removeEventListener(this._element, "pointerout", this._pointerOutBound, true);
-
-                    _ElementUtilities.removeClass(this._element, WinPressed.winPressed);
-                },
-
-                dispose: function _WinPressed_dispose() {
                     if (this._disposed) {
                         return;
                     }
+
                     this._disposed = true;
 
-                    this._resetPointer();
+                    // Remove commandBar Event handlers, AppBar shouldn't fire any events from this point.
+                    commandBar.removeEventListener("menuopened", this._commandBarMenuOpened, false);
+                    commandBar.removeEventListener("menuclosed", this._commandBarMenuClosed, false);
+
+                    this.disabled = true; // Stop talking to commandBar and remove it from view.
+
+                    // Make sure we only remove our commands from the CommandBar UI, in case something
+                    // else had taken over the commandBar by the time this AppBar was disposed.
+                    _showOnlyCommands.call(this, []);
+
+                    // Now dispose our commands.
+                    this._disposeChildren();
+                },
+
+                /// <field type="Function" locid="WinJS.UI.AppBar.onbeforeshow" helpKeyword="WinJS.UI.AppBar.onbeforeshow">
+                /// Occurs immediately before the control is shown.
+                /// </field>
+                onbeforeshow: createEvent(BEFORESHOW),
+
+                /// <field type="Function" locid="WinJS.UI.AppBar.onaftershow" helpKeyword="WinJS.UI.AppBar.onaftershow">
+                /// Occurs immediately after the control is shown.
+                /// </field>
+                onaftershow: createEvent(AFTERSHOW),
+
+                /// <field type="Function" locid="WinJS.UI.AppBar.onbeforehide" helpKeyword="WinJS.UI.AppBar.onbeforehide">
+                /// Occurs immediately before the control is hidden.
+                /// </field>
+                onbeforehide: createEvent(BEFOREHIDE),
+
+                /// <field type="Function" locid="WinJS.UI.AppBar.onafterhide" helpKeyword="WinJS.UI.AppBar.onafterhide">
+                /// Occurs immediately after the control is hidden.
+                /// </field>
+                onafterhide: createEvent(AFTERHIDE),
+
+                _wireUpEvents: function AppBar_wireUpEvents() {
+                    // Define commandBar event handlers.
+
+                    this._commandBarMenuOpened = function AppBar_commandBarMenuOpened() {
+                        if (!this.disabled) {
+                            this._writeProfilerMark("commandBarMenuOpened,StartTM");
+                            _sendEvent.call(this, BEFORESHOW);
+                            _sendEvent.call(this, AFTERSHOW);
+                            this._writeProfilerMark("commandBarMenuOpened,StopTM");
+                        }
+                    }.bind(this);
+
+                    this._commandBarMenuClosed = function AppBar_commandBarMenuClosed() {
+                        if (!this.disabled) {
+                            this._writeProfilerMark("commandBarMenuClosed,StartTM");
+                            _sendEvent.call(this, BEFOREHIDE);
+                            _sendEvent.call(this, AFTERHIDE);
+                            this._writeProfilerMark("commandBarMenuClosed,StopTM");
+                        }
+                    }.bind(this);
+
+                    // Attach commandBar event handlers.
+                    commandBar.addEventListener("menuopened", this._commandBarMenuOpened, false);
+                    commandBar.addEventListener("menuclosed", this._commandBarMenuClosed, false);
+                },
+
+                _disposeChildren: function AppBar_disposeChildren() {
+                    var children = this.element.children;
+                    var length = children.length;
+                    for (var i = 0; i < length; i++) {
+                        var element = children[i];
+                        if (this.layout === _Constants.appBarLayoutCommands) {
+                            element.winControl.dispose();
+                        } else {
+                            _Dispose.disposeSubTree(element);
+                        }
+                    }
+                },
+
+                _addCommand: function AppBar_addCommand(command) {
+                    if (!command) {
+                        throw new _ErrorFromName("WinJS.UI.AppBar.NullCommand", strings.nullCommand);
+                    }
+                    // See if it's a command already
+                    if (!command._element) {
+                        // Not a command, so assume it is options for the command's constructor.
+                        command = new _CommandPhone.AppBarCommand(null, command);
+                    }
+                    // If we were attached somewhere else, detach us
+                    if (command._element.parentElement) {
+                        command._element.parentElement.removeChild(command._element);
+                    }
+                    // Reattach us to the AppBar DOM
+                    this._element.appendChild(command._element);
+
+                    // Add visible commands to WebUICommandBar
+                    if (!command.hidden && !this.disabled) {
+                        command.section === "selection" ? commandBar.secondaryCommands.push(command._commandBarIconButton) : commandBar.primaryCommands.push(command._commandBarIconButton);
+                    }
+                },
+
+                _getCommands: function AppBar_getCommands() {
+                    var elements = this._element.querySelectorAll('.win-command');
+                    var commands = [];
+                    for (var i = 0, len = elements.length; i < len; i++) {
+                        commands.push(elements[i].winControl);
+                    }
+                    return commands;
+                },
+
+                _setCommands: function AppBar_setCommands(commands) {
+                    // Clear everything.
+                    _ElementUtilities.empty(this._element);
+                    if (!this.disabled) {
+                        _clearCommandBar();
+                    }
+
+                    // In case they had only one...
+                    if (!Array.isArray(commands)) {
+                        commands = [commands];
+                    }
+
+                    // Add commands
+                    var len = commands.length;
+                    for (var i = 0; i < len; i++) {
+                        this._addCommand(commands[i]);
+                    }
+                },
+
+                _updateCommandBarColors: function AppBar_updateCommandBarColors() {
+
+                    function extractColorValue(colorString) {
+                        // colorString is in the form of "rgb(r,g,b)", "rgba(r,g,b,a)"
+                        // Remove the left paren, right paren, and commas.
+                        var colorsArray = colorString.split("(")[1].split(")")[0].split(",");
+
+                        return {
+                            r: parseInt(colorsArray[0]),
+                            g: parseInt(colorsArray[1]),
+                            b: parseInt(colorsArray[2]),
+                            a: colorsArray[3] ? parseFloat(colorsArray[3]) : 1,
+                        };
+                    }
+
+                    if (!this.disabled) {
+
+                        // Use AppBar element backgroundColor (RGBA) to set the new WebUICommandBar.backgroundColor and WebUICommandBar.opacity values
+                        var bgColorString = _Global.getComputedStyle(this.element).backgroundColor;
+                        if (bgColorString === 'transparent') { // bgColorString is in the form of "rgb(r,g,b)", "rgba(r,g,b,a)" , or "transparent"
+                            // getComputedStyle() will give say 'transparent' when an element has no color styles applied to it, or when it has been explicitly set to 'transparent'.
+                            // However getComputedStyle does NOT say 'transparent' when a color style of "rgba()" with an alpha value of 0 has been applied.
+                            if (_Global.document.body.contains(this.element) || this.element.style.backgroundColor === 'transparent') {
+                                // If the element is in the DOM, then the WinJS Default CSS rules have been applied, so we can trust that 'transparent' is an explicit color override.
+                                commandBar.opacity = 0;
+                            }
+                        } else if (bgColorString.substring(0, 3) === 'rgb') {
+                            var bgColor = extractColorValue(bgColorString);
+                            commandBar.backgroundColor = { a: 255, r: bgColor.r, g: bgColor.g, b: bgColor.b };
+                            commandBar.opacity = bgColor.a;
+                        }
+
+                        // Use the label color (RGB) in the first DOM ordered AppBarCommand to set the new WebUICommandBar.foregroundColor value.
+                        // If there are no explicit styles on the AppBarCommands label element, the computedStyle of the label element's color
+                        // can/will inherit from the AppBarCommand element itself. If there are no explicit styles on the AppBarCommand element
+                        // the computedStyle of the label element's color can/will inherit form the AppBar element. Phone doesn't support
+                        // transparency in the foreground.
+                        var colorSrc = this.element.querySelector(".win-label") || this.element;
+                        var fgColorString = _Global.getComputedStyle(colorSrc).color;
+                        if (fgColorString.substring(0, 3) === 'rgb') { // fgColorString is in the form of "rgb(r,g,b)", "rgba(r,g,b,a)" , or "transparent"
+                            var fgColor = extractColorValue(fgColorString);
+                            commandBar.foregroundColor = { a: 255, r: fgColor.r, g: fgColor.g, b: fgColor.b };
+
+                        }
+                    }
+                },
+
+                _showAndHideCommands: function AppBar_showAndHideCommands(showCommands, hideCommands) {
+                    var count;
+                    var len;
+                    var primaryCommands = commandBar.primaryCommands;
+                    var secondaryCommands = commandBar.secondaryCommands;
+
+                    // Remove the CommandBarIconButtons whose corresponding AppBarComamnds are being hidden in AppBar.
+                    var indexToRemove;
+                    var hidingCommand;
+                    for (count = 0, len = hideCommands.length; count < len; count++) {
+                        hidingCommand = hideCommands[count].winControl;
+                        if (!hidingCommand.hidden) {
+                            // Should be in commandBar, needs to be removed.
+                            if (hidingCommand.section === "global") {
+                                // Remove from primary
+                                indexToRemove = primaryCommands.length - 1;
+                                while (hidingCommand._commandBarIconButton !== primaryCommands[indexToRemove] && indexToRemove >= 0) {
+                                    indexToRemove--;
+                                }
+                                if (indexToRemove >= 0) {
+                                    primaryCommands.removeAt(indexToRemove);
+                                }
+                            } else {
+                                // Remove from secondary
+                                indexToRemove = secondaryCommands.length - 1;
+                                while (hidingCommand._commandBarIconButton !== secondaryCommands[indexToRemove] && indexToRemove >= 0) {
+                                    indexToRemove--;
+                                }
+                                if (indexToRemove >= 0) {
+                                    secondaryCommands.removeAt(indexToRemove);
+                                }
+                            }
+                        }
+                        hidingCommand._hidden = true; // Set private member to avoid recursive call
+                    }
+
+                    // Add CommandBarIconButton's whose corresponding AppBarComamnds are being shown in AppBar.
+                    // Commands will be inserted into commandBar's Primary/Secondary Command properties.
+                    // The Primary/Secondary Command properties are kept sorted relative to the AppBar's
+                    // DOM order of each WebUICommandBar elements' corresponding AppBarCommand object.
+                    // We can leverage the fact that the Primary/Seconday Commands are already sorted as such.
+                    // Iterate forwards while inserting WebUICommandBarIconButton's to minimize # of array shifts.
+                    var allCommandsInDOMOrder = this._getCommands(); // All commands in the AppBar, sorted in DOM order.
+                    var DOMIndex; // The index we use to iterate through the above allCommandsInDOMOrder array.
+                    var indexToInsert; // The index of where we need to insert the Command to be shown into the CommandBar.
+                    var showingCommand; // The command to be showm.
+
+                    for (count = 0, len = showCommands.length; count < len; count++) {
+                        DOMIndex = 0;
+                        indexToInsert = 0;
+                        showingCommand = showCommands[count].winControl;
+                        if (showingCommand.hidden) {
+                            // Command is not in commandBar, needs to be added.
+                            if (showingCommand.section === "global") {
+                                // Add as a primary.
+                                while (showingCommand !== allCommandsInDOMOrder[DOMIndex]) {
+                                    if (primaryCommands[indexToInsert] === allCommandsInDOMOrder[DOMIndex]._commandBarIconButton) {
+                                        indexToInsert++;
+                                    }
+                                    DOMIndex++;
+                                }
+                                // Insert at the appropriate index to maintain sorted enviornment.
+                                primaryCommands.insertAt(indexToInsert, showingCommand._commandBarIconButton);
+                            } else {
+                                // Add as a secondary
+                                while (showingCommand !== allCommandsInDOMOrder[DOMIndex]) {
+                                    if (secondaryCommands[indexToInsert] === allCommandsInDOMOrder[DOMIndex]._commandBarIconButton) {
+                                        indexToInsert++;
+                                    }
+                                    DOMIndex++;
+                                }
+                                // Insert at the appropriate index to maintain sorted enviornment.
+                                secondaryCommands.insertAt(indexToInsert, showingCommand._commandBarIconButton);
+                            }
+                        }
+                        showingCommand._hidden = false; // Set private member to avoid recursive call
+                    }
+
+                    // Recompute colors.
+                    this._updateCommandBarColors();
+                },
+
+                _writeProfilerMark: function AppBar_writeProfilerMark(text) {
+                    _WriteProfilerMark("WinJS.UI.AppBar:" + this._id + ":" + text);
+                },
+            },
+            {
+                _currentAppBarId: { // Expose this static member for unit testing.
+                    get: function () {
+                        return currentAppBar;
+                    },
                 }
-            }, {
-                winPressed: "win-pressed"
             });
 
-            return WinPressed;
-        }),
-        /// <field>
-        /// <summary locid="WinJS.UI.NavBarCommand">
-        /// Represents a navigation command in an NavBarContainer.
-        /// </summary>
-        /// <compatibleWith platform="Windows" minVersion="8.1"/>
-        /// </field>
-        /// <icon src="ui_winjs.ui.navbarcommand.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.navbarcommand.16x16.png" width="16" height="16" />
-        /// <htmlSnippet><![CDATA[<div data-win-control="WinJS.UI.NavBarCommand" data-win-options="{location:'/pages/home/home.html',label:'Home',icon:WinJS.UI.AppBarIcon.home}"></div>]]></htmlSnippet>
-        /// <part name="navbarcommand" class="win-navbarcommand" locid="WinJS.UI.NavBarCommand_part:navbarcommand">Styles the entire NavBarCommand control.</part>
-        /// <part name="button" class="win-navbarcommand-button" locid="WinJS.UI.NavBarCommand_part:button">Styles the main button in a NavBarCommand.</part>
-        /// <part name="splitbutton" class="win-navbarcommand-splitbutton" locid="WinJS.UI.NavBarCommand_part:splitbutton">Styles the split button in a NavBarCommand</part>
-        /// <part name="icon" class="win-navbarcommand-icon" locid="WinJS.UI.NavBarCommand_part:icon">Styles the icon in the main button of a NavBarCommand.</part>
-        /// <part name="label" class="win-navbarcommand-label" locid="WinJS.UI.NavBarCommand_part:label">Styles the label in the main button of a NavBarCommand.</part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        NavBarCommand: _Base.Namespace._lazy(function () {
-            var Key = _ElementUtilities.Key;
+            _Base.Class.mix(AppBar, _Control.DOMEventMixin);
 
-            var strings = {
-                get duplicateConstruction() { return "Invalid argument: Controls may only be instantiated one time for each DOM element"; }
-            };
-
-            var NavBarCommand = _Base.Class.define(function NavBarCommand_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.NavBarCommand.NavBarCommand">
-                /// <summary locid="WinJS.UI.NavBarCommand.constructor">
-                /// Creates a new NavBarCommand.
-                /// </summary>
-                /// <param name="element" type="HTMLElement" domElement="true" isOptional="true" locid="WinJS.UI.NavBarCommand.constructor_p:element">
-                /// The DOM element that will host the new  NavBarCommand control.
-                /// </param>
-                /// <param name="options" type="Object" isOptional="true" locid="WinJS.UI.NavBarCommand.constructor_p:options">
-                /// An object that contains one or more property/value pairs to apply to the new control.
-                /// Each property of the options object corresponds to one of the control's properties or events.
-                /// Event names must begin with "on".
-                /// </param>
-                /// <returns type="WinJS.UI.NavBarCommand" locid="WinJS.UI.NavBarCommand.constructor_returnValue">
-                /// The new NavBarCommand.
-                /// </returns>
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </signature>
-                element = element || _Global.document.createElement("DIV");
-                options = options || {};
-
-                if (element.winControl) {
-                    throw new _ErrorFromName("WinJS.UI.NavBarCommand.DuplicateConstruction", strings.duplicateConstruction);
-                }
-
-                // Attaching JS control to DOM element
-                element.winControl = this;
-                this._element = element;
-                _ElementUtilities.addClass(this.element, NavBarCommand._ClassName.navbarcommand);
-                _ElementUtilities.addClass(this.element, "win-disposable");
-
-                this._tooltip = null;
-                this._splitOpened = false;
-                this._buildDom();
-                element.addEventListener('keydown', this._keydownHandler.bind(this));
-
-                _Control.setOptions(this, options);
-            }, {
-                /// <field type="HTMLElement" domElement="true" hidden="true" locid="WinJS.UI.NavBarCommand.element" helpKeyword="WinJS.UI.NavBarCommand.element">
-                /// Gets the DOM element that hosts the NavBarCommand.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                element: {
-                    get: function () {
-                        return this._element;
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.NavBarCommand.label" helpKeyword="WinJS.UI.NavBarCommand.label">
-                /// Gets or sets the label of the NavBarCommand.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                label: {
-                    get: function () {
-                        return this._label;
-                    },
-                    set: function (value) {
-                        this._label = value;
-                        this._labelEl.textContent = value;
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.NavBarCommand.tooltip" helpKeyword="WinJS.UI.NavBarCommand.tooltip">
-                /// Gets or sets the tooltip of the NavBarCommand.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                tooltip: {
-                    get: function () {
-                        return this._tooltip;
-                    },
-                    set: function (value) {
-                        this._tooltip = value;
-                        if (this._tooltip || this._tooltip === "") {
-                            this._element.setAttribute('title', this._tooltip);
-                        } else {
-                            this._element.removeAttribute('title');
-                        }
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.NavBarCommand.icon" helpKeyword="WinJS.UI.NavBarCommand.icon">
-                /// Gets or sets the icon of the NavBarCommand. This value is either one of the values of the AppBarIcon enumeration or the path of a custom PNG file.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                icon: {
-                    get: function () {
-                        return this._icon;
-                    },
-                    set: function (value) {
-                        this._icon = (_Icon[value] || value);
-
-                        // If the icon's a single character, presume a glyph
-                        if (this._icon && this._icon.length === 1) {
-                            // Set the glyph
-                            this._imageSpan.textContent = this._icon;
-                            this._imageSpan.style.backgroundImage = "";
-                            this._imageSpan.style.msHighContrastAdjust = "";
-                            this._imageSpan.style.display = "";
-                        } else if (this._icon && this._icon.length > 1) {
-                            // Must be an image, set that
-                            this._imageSpan.textContent = "";
-                            this._imageSpan.style.backgroundImage = this._icon;
-                            this._imageSpan.style.msHighContrastAdjust = "none";
-                            this._imageSpan.style.display = "";
-                        } else {
-                            this._imageSpan.textContent = "";
-                            this._imageSpan.style.backgroundImage = "";
-                            this._imageSpan.style.msHighContrastAdjust = "";
-                            this._imageSpan.style.display = "none";
-                        }
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.NavBarCommand.location" helpKeyword="WinJS.UI.NavBarCommand.location">
-                /// Gets or sets the command's target location.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                location: {
-                    get: function () {
-                        return this._location;
-                    },
-                    set: function (value) {
-                        this._location = value;
-                    }
-                },
-
-                /// <field type="String" locid="WinJS.UI.NavBarCommand.state" helpKeyword="WinJS.UI.NavBarCommand.state">
-                /// Gets or sets the state value used for navigation. The command passes this object to the WinJS.Navigation.navigate function.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                state: {
-                    get: function () {
-                        return this._state;
-                    },
-                    set: function (value) {
-                        this._state = value;
-                    }
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.NavBarCommand.splitButton" helpKeyword="WinJS.UI.NavBarCommand.splitButton">
-                /// Gets or sets a value that specifies whether the NavBarCommand has a split button.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                splitButton: {
-                    get: function () {
-                        return this._split;
-                    },
-                    set: function (value) {
-                        this._split = value;
-                        if (this._split) {
-                            this._splitButtonEl.style.display = "";
-                        } else {
-                            this._splitButtonEl.style.display = "none";
-                        }
-                    }
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.NavBarCommand.splitOpened" hidden="true" helpKeyword="WinJS.UI.NavBarCommand.splitOpened">
-                /// Gets or sets a value that specifies whether the split button is open.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                splitOpened: {
-                    get: function () {
-                        return this._splitOpened;
-                    },
-                    set: function (value) {
-                        if (this._splitOpened !== !!value) {
-                            this._toggleSplit();
-                        }
-                    }
-                },
-
-                _toggleSplit: function NavBarCommand_toggleSplit() {
-                    this._splitOpened = !this._splitOpened;
-                    if (this._splitOpened) {
-                        _ElementUtilities.addClass(this._splitButtonEl, NavBarCommand._ClassName.navbarcommandsplitbuttonopened);
-                        this._splitButtonEl.setAttribute("aria-expanded", "true");
-                    } else {
-                        _ElementUtilities.removeClass(this._splitButtonEl, NavBarCommand._ClassName.navbarcommandsplitbuttonopened);
-                        this._splitButtonEl.setAttribute("aria-expanded", "false");
-                    }
-                    this._fireEvent(NavBarCommand._EventName._splitToggle);
-                },
-
-                _rtl: {
-                    get: function () {
-                        return _Global.getComputedStyle(this.element).direction === "rtl";
-                    }
-                },
-
-                _keydownHandler: function NavBarCommand_keydownHandler(ev) {
-                    if (_ElementUtilities._matchesSelector(ev.target, ".win-interactive, .win-interactive *")) {
-                        return;
-                    }
-
-                    var leftStr = this._rtl ? Key.rightArrow : Key.leftArrow;
-                    var rightStr = this._rtl ? Key.leftArrow : Key.rightArrow;
-
-                    if (!ev.altKey && (ev.keyCode === leftStr || ev.keyCode === Key.home || ev.keyCode === Key.end) && ev.target === this._splitButtonEl) {
-                        _ElementUtilities._setActive(this._buttonEl);
-                        if (ev.keyCode === leftStr) {
-                            ev.stopPropagation();
-                        }
-                        ev.preventDefault();
-                    } else if (!ev.altKey && ev.keyCode === rightStr && this.splitButton && (ev.target === this._buttonEl || this._buttonEl.contains(ev.target))) {
-                        _ElementUtilities._setActive(this._splitButtonEl);
-                        if (ev.keyCode === rightStr) {
-                            ev.stopPropagation();
-                        }
-                        ev.preventDefault();
-                    } else if ((ev.keyCode === Key.space || ev.keyCode === Key.enter) && (ev.target === this._buttonEl || this._buttonEl.contains(ev.target))) {
-                        if (this.location) {
-                            Navigation.navigate(this.location, this.state);
-                        }
-                        this._fireEvent(NavBarCommand._EventName._invoked);
-                    } else if ((ev.keyCode === Key.space || ev.keyCode === Key.enter) && ev.target === this._splitButtonEl) {
-                        this._toggleSplit();
-                    }
-                },
-
-                _getFocusInto: function NavBarCommand_getFocusInto(keyCode) {
-                    var leftStr = this._rtl ? Key.rightArrow : Key.leftArrow;
-                    if ((keyCode === leftStr) && this.splitButton) {
-                        return this._splitButtonEl;
-                    } else {
-                        return this._buttonEl;
-                    }
-                },
-
-                _buildDom: function NavBarCommand_buildDom() {
-                    var markup =
-                        '<div tabindex="0" role="button" class="' + NavBarCommand._ClassName.navbarcommandbutton + '">' +
-                            '<div class="' + NavBarCommand._ClassName.navbarcommandbuttoncontent + '">' +
-                                '<div class="' + NavBarCommand._ClassName.navbarcommandicon + '"></div>' +
-                                '<div class="' + NavBarCommand._ClassName.navbarcommandlabel + '"></div>' +
-                            '</div>' +
-                        '</div>' +
-                        '<div tabindex="-1" aria-expanded="false" class="' + NavBarCommand._ClassName.navbarcommandsplitbutton + '"></div>';
-                    this.element.insertAdjacentHTML("afterBegin", markup);
-
-                    this._buttonEl = this.element.firstElementChild;
-                    this._buttonPressedBehavior = new exports._WinPressed(this._buttonEl);
-                    this._contentEl = this._buttonEl.firstElementChild;
-                    this._imageSpan = this._contentEl.firstElementChild;
-                    this._imageSpan.style.display = "none";
-                    this._labelEl = this._imageSpan.nextElementSibling;
-                    this._splitButtonEl = this._buttonEl.nextElementSibling;
-                    this._splitButtonPressedBehavior = new exports._WinPressed(this._splitButtonEl);
-                    this._splitButtonEl.style.display = "none";
-
-                    _ElementUtilities._ensureId(this._buttonEl);
-                    this._splitButtonEl.setAttribute("aria-labelledby", this._buttonEl.id);
-
-                    this._buttonEl.addEventListener("click", this._handleButtonClick.bind(this));
-
-                    var mutationObserver = new _ElementUtilities._MutationObserver(this._splitButtonAriaExpandedPropertyChangeHandler.bind(this));
-                    mutationObserver.observe(this._splitButtonEl, { attributes: true, attributeFilter: ["aria-expanded"] });
-                    this._splitButtonEl.addEventListener("click", this._handleSplitButtonClick.bind(this));
-
-                    // reparent any other elements.
-                    var tempEl = this._splitButtonEl.nextSibling;
-                    while (tempEl) {
-                        this._buttonEl.insertBefore(tempEl, this._contentEl);
-                        if (tempEl.nodeName !== "#text") {
-                            ControlProcessor.processAll(tempEl);
-                        }
-                        tempEl = this._splitButtonEl.nextSibling;
-                    }
-                },
-
-                _handleButtonClick: function NavBarCommand_handleButtonClick(ev) {
-                    var srcElement = ev.target;
-                    if (!_ElementUtilities._matchesSelector(srcElement, ".win-interactive, .win-interactive *")) {
-                        if (this.location) {
-                            Navigation.navigate(this.location, this.state);
-                        }
-                        this._fireEvent(NavBarCommand._EventName._invoked);
-                    }
-                },
-
-                _splitButtonAriaExpandedPropertyChangeHandler: function NavBarCommand_splitButtonAriaExpandedPropertyChangeHandler() {
-                    if ((this._splitButtonEl.getAttribute("aria-expanded") === "true") !== this._splitOpened) {
-                        this._toggleSplit();
-                    }
-                },
-
-                _handleSplitButtonClick: function NavBarCommand_handleSplitButtonClick() {
-                    this._toggleSplit();
-                },
-
-                _fireEvent: function NavBarCommand_fireEvent(type, detail) {
-                    var event = _Global.document.createEvent("CustomEvent");
-                    event.initCustomEvent(type, true, false, detail);
-                    this.element.dispatchEvent(event);
-                },
-
-                dispose: function NavBarCommand_dispose() {
-                    /// <signature helpKeyword="WinJS.UI.NavBarCommand.dispose">
-                    /// <summary locid="WinJS.UI.NavBarCommand.dispose">
-                    /// Disposes this control.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </signature>
-                    if (this._disposed) {
-                        return;
-                    }
-                    this._disposed = true;
-
-                    this._buttonPressedBehavior.dispose();
-                    this._splitButtonPressedBehavior.dispose();
-                }
-            }, {
-                _ClassName: {
-                    navbarcommand: "win-navbarcommand",
-                    navbarcommandbutton: "win-navbarcommand-button",
-                    navbarcommandbuttoncontent: "win-navbarcommand-button-content",
-                    navbarcommandsplitbutton: "win-navbarcommand-splitbutton",
-                    navbarcommandsplitbuttonopened: "win-navbarcommand-splitbutton-opened",
-                    navbarcommandicon: "win-navbarcommand-icon",
-                    navbarcommandlabel: "win-navbarcommand-label"
-                },
-                _EventName: {
-                    _invoked: "_invoked",
-                    _splitToggle: "_splittoggle"
-                }
-            });
-            _Base.Class.mix(NavBarCommand, _Control.DOMEventMixin);
-            return NavBarCommand;
-        })
-    });
-
-});
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('WinJS/Controls/NavBar/_Container',[
-    'exports',
-    '../../Core/_Global',
-    '../../Core/_Base',
-    '../../Core/_BaseUtils',
-    '../../Core/_ErrorFromName',
-    '../../Core/_Events',
-    '../../Core/_Log',
-    '../../Core/_Resources',
-    '../../Core/_WriteProfilerMark',
-    '../../Animations',
-    '../../Animations/_TransitionAnimation',
-    '../../BindingList',
-    '../../ControlProcessor',
-    '../../Navigation',
-    '../../Promise',
-    '../../Scheduler',
-    '../../Utilities/_Control',
-    '../../Utilities/_ElementUtilities',
-    '../../Utilities/_KeyboardBehavior',
-    '../../Utilities/_UI',
-    '../AppBar/_Constants',
-    '../Repeater',
-    './_Command'
-    ], function NavBarContainerInit(exports, _Global, _Base, _BaseUtils, _ErrorFromName, _Events, _Log, _Resources, _WriteProfilerMark, Animations, _TransitionAnimation, BindingList, ControlProcessor, Navigation, Promise, Scheduler, _Control, _ElementUtilities, _KeyboardBehavior, _UI, _Constants, Repeater, _Command) {
-    "use strict";
-
-    function nobodyHasFocus() {
-        return _Global.document.activeElement === null || _Global.document.activeElement === _Global.document.body;
-    }
-
-    _Base.Namespace._moduleDefine(exports, "WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.NavBarContainer">
-        /// Contains a group of NavBarCommand objects in a NavBar.
-        /// </summary>
-        /// <compatibleWith platform="Windows" minVersion="8.1"/>
-        /// </field>
-        /// <icon src="ui_winjs.ui.navbarcontainer.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.navbarcontainer.16x16.png" width="16" height="16" />
-        /// <htmlSnippet supportsContent="true"><![CDATA[<div data-win-control="WinJS.UI.NavBarContainer">
-        /// <div data-win-control="WinJS.UI.NavBarCommand" data-win-options="{location:'/pages/home/home.html',label:'Home',icon:WinJS.UI.AppBarIcon.home}"></div>
-        /// </div>]]></htmlSnippet>
-        /// <event name="invoked" locid="WinJS.UI.NavBarContainer_e:invoked">Raised when a NavBarCommand is invoked.</event>
-        /// <event name="splittoggle" locid="WinJS.UI.NavBarContainer_e:splittoggle">Raised when the split button on a NavBarCommand is toggled.</event>
-        /// <part name="navbarcontainer" class="win-navbarcontainer" locid="WinJS.UI.NavBarContainer_part:navbarcontainer">Styles the entire NavBarContainer control.</part>
-        /// <part name="pageindicators" class="win-navbarcontainer-pageindicator-box" locid="WinJS.UI.NavBarContainer_part:pageindicators">
-        /// Styles the page indication for the NavBarContainer.
-        /// </part>
-        /// <part name="indicator" class="win-navbarcontainer-pagination-indicator" locid="WinJS.UI.NavBarContainer_part:indicator">Styles the page indication for each page.</part>
-        /// <part name="currentindicator" class="win-navbarcontainer-pagination-indicator-current" locid="WinJS.UI.NavBarContainer_part:currentindicator">
-        /// Styles the indication of the current page.
-        /// </part>
-        /// <part name="items" class="win-navbarcontainer-surface" locid="WinJS.UI.NavBarContainer_part:items">Styles the area that contains items for the NavBarContainer.</part>
-        /// <part name="navigationArrow" class="win-navbarcontainer-navarrow" locid="WinJS.UI.NavBarContainer_part:navigationArrow">Styles left and right navigation arrows.</part>
-        /// <part name="leftNavigationArrow" class="win-navbarcontainer-navleft" locid="WinJS.UI.NavBarContainer_part:leftNavigationArrow">Styles the left navigation arrow.</part>
-        /// <part name="rightNavigationArrow" class="win-navbarcontainer-navright" locid="WinJS.UI.NavBarContainer_part:rightNavigationArrow">Styles the right navigation arrow.</part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        NavBarContainer: _Base.Namespace._lazy(function () {
-            var Key = _ElementUtilities.Key;
-
-            var buttonFadeDelay = 3000;
-            var PT_TOUCH = _ElementUtilities._MSPointerEvent.MSPOINTER_TYPE_TOUCH || "touch";
-            var MS_MANIPULATION_STATE_STOPPED = 0;
-
-            var createEvent = _Events._createEventProperty;
-            var eventNames = {
-                invoked: "invoked",
-                splittoggle: "splittoggle"
-            };
-
-            var strings = {
-                get duplicateConstruction() { return "Invalid argument: Controls may only be instantiated one time for each DOM element"; },
-                get navBarContainerViewportAriaLabel() { return _Resources._getWinJSString("ui/navBarContainerViewportAriaLabel").value; }
-            };
-
-            var NavBarContainer = _Base.Class.define(function NavBarContainer_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.NavBarContainer.NavBarContainer">
-                /// <summary locid="WinJS.UI.NavBarContainer.constructor">
-                /// Creates a new NavBarContainer.
-                /// </summary>
-                /// <param name="element" type="HTMLElement" domElement="true" isOptional="true" locid="WinJS.UI.NavBarContainer.constructor_p:element">
-                /// The DOM element that will host the NavBarContainer control.
-                /// </param>
-                /// <param name="options" type="Object" isOptional="true" locid="WinJS.UI.NavBarContainer.constructor_p:options">
-                /// An object that contains one or more property/value pairs to apply to the new control.
-                /// Each property of the options object corresponds to one of the control's properties or events.
-                /// Event names must begin with "on".
-                /// </param>
-                /// <returns type="WinJS.UI.NavBarContainer" locid="WinJS.UI.NavBarContainer.constructor_returnValue">
-                /// The new NavBarContainer.
-                /// </returns>
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </signature>
-
-                element = element || _Global.document.createElement("DIV");
-                this._id = element.id || _ElementUtilities._uniqueID(element);
-                this._writeProfilerMark("constructor,StartTM");
-
-                options = options || {};
-
-                if (element.winControl) {
-                    throw new _ErrorFromName("WinJS.UI.NavBarContainer.DuplicateConstruction", strings.duplicateConstruction);
-                }
-
-                // Attaching JS control to DOM element
-                element.winControl = this;
-                this._element = element;
-                _ElementUtilities.addClass(this.element, NavBarContainer._ClassName.navbarcontainer);
-                _ElementUtilities.addClass(this.element, "win-disposable");
-                if (!element.getAttribute("tabIndex")) {
-                    element.tabIndex = -1;
-                }
-
-                this._focusCurrentItemPassivelyBound = this._focusCurrentItemPassively.bind(this);
-                this._closeSplitAndResetBound = this._closeSplitAndReset.bind(this);
-                this._currentManipulationState = MS_MANIPULATION_STATE_STOPPED;
-
-                this._panningDisabled = !_ElementUtilities._supportsSnapPoints;
-                this._fixedSize = false;
-                this._maxRows = 1;
-                this._sizes = {};
-
-                this._setupTree();
-
-                this._duringConstructor = true;
-
-                this._dataChangingBound = this._dataChanging.bind(this);
-                this._dataChangedBound = this._dataChanged.bind(this);
-
-                Navigation.addEventListener('navigated', this._closeSplitAndResetBound);
-
-                // Don't use set options for the properties so we can control the ordering to avoid rendering multiple times.
-                this.layout = options.layout || _UI.Orientation.horizontal;
-                if (options.maxRows) {
-                    this.maxRows = options.maxRows;
-                }
-                if (options.template) {
-                    this.template = options.template;
-                }
-                if (options.data) {
-                    this.data = options.data;
-                }
-                if (options.fixedSize) {
-                    this.fixedSize = options.fixedSize;
-                }
-
-                // Events only
-                _Control._setOptions(this, options, true);
-
-                this._duringConstructor = false;
-
-                if (options.currentIndex) {
-                    this.currentIndex = options.currentIndex;
-                }
-
-                    this._updatePageUI();
-
-                Scheduler.schedule(function NavBarContainer_async_initialize() {
-                    this._updateAppBarReference();
-                }, Scheduler.Priority.normal, this, "WinJS.UI.NavBarContainer_async_initialize");
-
-                this._writeProfilerMark("constructor,StopTM");
-            }, {
-                /// <field type="HTMLElement" domElement="true" hidden="true" locid="WinJS.UI.NavBarContainer.element" helpKeyword="WinJS.UI.NavBarContainer.element">
-                /// Gets the DOM element that hosts the NavBarContainer.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                element: {
-                    get: function () {
-                        return this._element;
-                    }
-                },
-
-                /// <field type="Object" locid="WinJS.UI.NavBarContainer.template" helpKeyword="WinJS.UI.NavBarContainer.template" potentialValueSelector="[data-win-control='WinJS.Binding.Template']">
-                /// Gets or sets a Template or custom rendering function that defines the HTML of each item within the NavBarContainer.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                template: {
-                    get: function () {
-                        return this._template;
-                    },
-                    set: function (value) {
-                        this._template = value;
-                        if (this._repeater) {
-                            var hadFocus = this.element.contains(_Global.document.activeElement);
-
-                            if (!this._duringConstructor) {
-                                this._closeSplitIfOpen();
-                            }
-
-                            // the repeater's template is wired up to this._render() so just resetting it will rebuild the tree.
-                            this._repeater.template = this._repeater.template;
-
-                            if (!this._duringConstructor) {
-                                this._measured = false;
-                                this._sizes.itemMeasured = false;
-                                this._reset();
-                                if (hadFocus) {
-                                    this._keyboardBehavior._focus(0);
-                                }
-                            }
-                        }
-                    }
-                },
-
-                _render: function NavBarContainer_render(item) {
-                    var navbarCommandEl = _Global.document.createElement('div');
-
-                    var template = this._template;
-                    if (template) {
-                        if (template.render) {
-                            template.render(item, navbarCommandEl);
-                        } else if (template.winControl && template.winControl.render) {
-                            template.winControl.render(item, navbarCommandEl);
-                        } else {
-                            navbarCommandEl.appendChild(template(item));
-                        }
-                    }
-
-                    // Create the NavBarCommand after calling render so that the reparenting in navbarCommand works.
-                    var navbarCommand = new _Command.NavBarCommand(navbarCommandEl, item);
-                    return navbarCommand._element;
-                },
-
-                /// <field type="WinJS.Binding.List" locid="WinJS.UI.NavBarContainer.data" helpKeyword="WinJS.UI.NavBarContainer.data">
-                /// Gets or sets the WinJS.Binding.List that provides the NavBarContainer with items to display.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                data: {
-                    get: function () {
-                        return this._repeater && this._repeater.data;
-                    },
-                    set: function (value) {
-                        if (!value) {
-                            value = new BindingList.List();
-                        }
-
-                        if (!this._duringConstructor) {
-                            this._closeSplitIfOpen();
-                        }
-
-                        this._removeDataChangingEvents();
-                        this._removeDataChangedEvents();
-
-                        var hadFocus = this.element.contains(_Global.document.activeElement);
-
-                        if (!this._repeater) {
-                            this._surfaceEl.innerHTML = "";
-                            this._repeater = new Repeater.Repeater(this._surfaceEl, {
-                                template: this._render.bind(this)
-                            });
-                        }
-
-                        this._addDataChangingEvents(value);
-                        this._repeater.data = value;
-                        this._addDataChangedEvents(value);
-
-                        if (!this._duringConstructor) {
-                            this._measured = false;
-                            this._sizes.itemMeasured = false;
-                            this._reset();
-                            if (hadFocus) {
-                                this._keyboardBehavior._focus(0);
-                            }
-                        }
-                    }
-                },
-
-                /// <field type="Number" integer="true" locid="WinJS.UI.NavBarContainer.maxRows" helpKeyword="WinJS.UI.NavBarContainer.maxRows">
-                /// Gets or sets the number of rows allowed to be used before items are placed on additional pages.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                maxRows: {
-                    get: function () {
-                        return this._maxRows;
-                    },
-                    set: function (value) {
-                        value = (+value === value) ? value : 1;
-                        this._maxRows = Math.max(1, value);
-
-                        if (!this._duringConstructor) {
-                            this._closeSplitIfOpen();
-
-                            this._measured = false;
-                            this._reset();
-                        }
-                    }
-                },
-
-                /// <field type="String" oamOptionsDatatype="WinJS.UI.Orientation" locid="WinJS.UI.NavBarContainer.layout" helpKeyword="WinJS.UI.NavBarContainer.layout">
-                /// Gets or sets a value that specifies whether the NavBarContainer has a horizontal or vertical layout. The default is "horizontal".
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                layout: {
-                    get: function () {
-                        return this._layout;
-                    },
-                    set: function (value) {
-                        if (value === _UI.Orientation.vertical) {
-                            this._layout = _UI.Orientation.vertical;
-                            _ElementUtilities.removeClass(this.element, NavBarContainer._ClassName.horizontal);
-                            _ElementUtilities.addClass(this.element, NavBarContainer._ClassName.vertical);
-                        } else {
-                            this._layout = _UI.Orientation.horizontal;
-                            _ElementUtilities.removeClass(this.element, NavBarContainer._ClassName.vertical);
-                            _ElementUtilities.addClass(this.element, NavBarContainer._ClassName.horizontal);
-                        }
-
-                        this._viewportEl.style.msScrollSnapType = "";
-                        this._zooming = false;
-
-                        if (!this._duringConstructor) {
-                            this._measured = false;
-                            this._sizes.itemMeasured = false;
-                            this._ensureVisible(this._keyboardBehavior.currentIndex, true);
-                            this._updatePageUI();
-                            this._closeSplitIfOpen();
-                        }
-                    }
-                },
-
-                /// <field type="Number" integer="true" locid="WinJS.UI.NavBarContainer.currentIndex" hidden="true" helpKeyword="WinJS.UI.NavBarContainer.currentIndex">
-                /// Gets or sets the index of the current NavBarCommand.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                currentIndex: {
-                    get: function () {
-                        return this._keyboardBehavior.currentIndex;
-                    },
-                    set: function (value) {
-                        if (value === +value) {
-                            var hadFocus = this.element.contains(_Global.document.activeElement);
-
-                            this._keyboardBehavior.currentIndex = value;
-
-                            this._ensureVisible(this._keyboardBehavior.currentIndex, true);
-
-                            if (hadFocus) {
-                                this._keyboardBehavior._focus();
-                            }
-                        }
-                    }
-                },
-
-                /// <field type="Boolean" locid="WinJS.UI.NavBarContainer.fixedSize" helpKeyword="WinJS.UI.NavBarContainer.fixedSize">
-                /// Gets or sets a value that specifies whether child NavBarCommand  objects should be a fixed width when there are multiple pages. A value of true indicates
-                /// that the NavBarCommand objects use a fixed width; a value of false indicates that they use a dynamic width.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                fixedSize: {
-                    get: function () {
-                        return this._fixedSize;
-                    },
-                    set: function (value) {
-                        this._fixedSize = !!value;
-
-                        if (!this._duringConstructor) {
-                            this._closeSplitIfOpen();
-
-                            if (!this._measured) {
-                                this._measure();
-                            } else if (this._surfaceEl.children.length > 0) {
-                                this._updateGridStyles();
-                            }
-                        }
-                    }
-                },
-
-                /// <field type="Function" locid="WinJS.UI.NavBarContainer.oninvoked" helpKeyword="WinJS.UI.NavBarContainer.oninvoked">
-                /// Raised when a NavBarCommand has been invoked.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                oninvoked: createEvent(eventNames.invoked),
-
-                /// <field type="Function" locid="WinJS.UI.NavBarContainer.onsplittoggle" helpKeyword="WinJS.UI.NavBarContainer.onsplittoggle">
-                /// Raised when the split button on a NavBarCommand is toggled.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                onsplittoggle: createEvent(eventNames.splittoggle),
-
-                forceLayout: function NavBarContainer_forceLayout() {
-                    /// <signature helpKeyword="WinJS.UI.NavBarContainer.forceLayout">
-                    /// <summary locid="WinJS.UI.NavBarContainer.forceLayout">
-                    /// Forces the NavBarContainer to update scroll positions and if the NavBar has changed size, it will also re-measure.
-                    /// Use this function when making the NavBarContainer visible again after you set its style.display property to "none".
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </signature>
-                    this._resizeHandler();
-                    if (this._measured) {
-                        this._scrollPosition = _ElementUtilities.getScrollPosition(this._viewportEl)[(this.layout === _UI.Orientation.horizontal ? "scrollLeft" : "scrollTop")];
-                    }
-
-                    this._duringForceLayout = true;
-                    this._ensureVisible(this._keyboardBehavior.currentIndex, true);
-                    this._updatePageUI();
-                    this._duringForceLayout = false;
-                },
-
-                _updateAppBarReference: function NavBarContainer_updateAppBarReference() {
-                    if (!this._appBarEl || !this._appBarEl.contains(this.element)) {
-                        if (this._appBarEl) {
-                            this._appBarEl.removeEventListener('beforeshow', this._closeSplitAndResetBound);
-                            this._appBarEl.removeEventListener('beforeshow', this._resizeImplBound);
-                            this._appBarEl.removeEventListener('aftershow', this._focusCurrentItemPassivelyBound);
-                        }
-
-                        var appBarEl = this.element.parentNode;
-                        while (appBarEl && !_ElementUtilities.hasClass(appBarEl, _Constants.appBarClass)) {
-                            appBarEl = appBarEl.parentNode;
-                        }
-                        this._appBarEl = appBarEl;
-
-                        if (this._appBarEl) {
-                            this._appBarEl.addEventListener('beforeshow', this._closeSplitAndResetBound);
-                            this._appBarEl.addEventListener('aftershow', this._focusCurrentItemPassivelyBound);
-                        }
-                    }
-                },
-
-                _closeSplitAndReset: function NavBarContainer_closeSplitAndReset() {
-                    this._closeSplitIfOpen();
-                    this._reset();
-                },
-
-                _dataChanging: function NavBarContainer_dataChanging(ev) {
-                    // Store the element that was active so that we can detect
-                    // if the focus went away because of the data change.
-                    this._elementHadFocus = _Global.document.activeElement;
-
-                    if (this._currentSplitNavItem && this._currentSplitNavItem.splitOpened) {
-                        if (ev.type === "itemremoved") {
-                            if (this._surfaceEl.children[ev.detail.index].winControl === this._currentSplitNavItem) {
-                                this._closeSplitIfOpen();
-                            }
-                        } else if (ev.type === "itemchanged") {
-                            if (this._surfaceEl.children[ev.detail.index].winControl === this._currentSplitNavItem) {
-                                this._closeSplitIfOpen();
-                            }
-                        } else if (ev.type === "itemmoved") {
-                            if (this._surfaceEl.children[ev.detail.oldIndex].winControl === this._currentSplitNavItem) {
-                                this._closeSplitIfOpen();
-                            }
-                        } else if (ev.type === "reload") {
-                            this._closeSplitIfOpen();
-                        }
-                    }
-                },
-
-                _dataChanged: function NavBarContainer_dataChanged(ev) {
-                    this._measured = false;
-
-                    if (ev.type === "itemremoved") {
-                        if (ev.detail.index < this._keyboardBehavior.currentIndex) {
-                            this._keyboardBehavior.currentIndex--;
-                        } else if (ev.detail.index === this._keyboardBehavior.currentIndex) {
-                            // This clamps if the item being removed was the last item in the list
-                            this._keyboardBehavior.currentIndex = this._keyboardBehavior.currentIndex;
-                            if (nobodyHasFocus() && this._elementHadFocus) {
-                                this._keyboardBehavior._focus();
-                            }
-                        }
-                    } else if (ev.type === "itemchanged") {
-                        if (ev.detail.index === this._keyboardBehavior.currentIndex) {
-                            if (nobodyHasFocus() && this._elementHadFocus) {
-                                this._keyboardBehavior._focus();
-                            }
-                        }
-                    } else if (ev.type === "iteminserted") {
-                        if (ev.detail.index <= this._keyboardBehavior.currentIndex) {
-                            this._keyboardBehavior.currentIndex++;
-                        }
-                    } else if (ev.type === "itemmoved") {
-                        if (ev.detail.oldIndex === this._keyboardBehavior.currentIndex) {
-                            this._keyboardBehavior.currentIndex = ev.detail.newIndex;
-                            if (nobodyHasFocus() && this._elementHadFocus) {
-                                this._keyboardBehavior._focus();
-                            }
-                        }
-                    } else if (ev.type === "reload") {
-                        this._keyboardBehavior.currentIndex = 0;
-                        if (nobodyHasFocus() && this._elementHadFocus) {
-                            this._keyboardBehavior._focus();
-                        }
-                    }
-
-                    this._ensureVisible(this._keyboardBehavior.currentIndex, true);
-                    this._updatePageUI();
-                },
-
-                _focusCurrentItemPassively: function NavBarContainer_focusCurrentItemPassively() {
-                    if (this.element.contains(_Global.document.activeElement)) {
-                        this._keyboardBehavior._focus();
-                    }
-                },
-
-                _reset: function NavBarContainer_reset() {
-                    this._keyboardBehavior.currentIndex = 0;
-
-                    if (this.element.contains(_Global.document.activeElement)) {
-                        this._keyboardBehavior._focus(0);
-                    }
-
-                    this._viewportEl.style.msScrollSnapType = "";
-                    this._zooming = false;
-
-                    this._ensureVisible(0, true);
-                    this._updatePageUI();
-                },
-
-                _removeDataChangedEvents: function NavBarContainer_removeDataChangedEvents() {
-                    if (this._repeater) {
-                        this._repeater.data.removeEventListener("itemchanged", this._dataChangedBound);
-                        this._repeater.data.removeEventListener("iteminserted", this._dataChangedBound);
-                        this._repeater.data.removeEventListener("itemmoved", this._dataChangedBound);
-                        this._repeater.data.removeEventListener("itemremoved", this._dataChangedBound);
-                        this._repeater.data.removeEventListener("reload", this._dataChangedBound);
-                    }
-                },
-
-                _addDataChangedEvents: function NavBarContainer_addDataChangedEvents() {
-                    if (this._repeater) {
-                        this._repeater.data.addEventListener("itemchanged", this._dataChangedBound);
-                        this._repeater.data.addEventListener("iteminserted", this._dataChangedBound);
-                        this._repeater.data.addEventListener("itemmoved", this._dataChangedBound);
-                        this._repeater.data.addEventListener("itemremoved", this._dataChangedBound);
-                        this._repeater.data.addEventListener("reload", this._dataChangedBound);
-                    }
-                },
-
-                _removeDataChangingEvents: function NavBarContainer_removeDataChangingEvents() {
-                    if (this._repeater) {
-                        this._repeater.data.removeEventListener("itemchanged", this._dataChangingBound);
-                        this._repeater.data.removeEventListener("iteminserted", this._dataChangingBound);
-                        this._repeater.data.removeEventListener("itemmoved", this._dataChangingBound);
-                        this._repeater.data.removeEventListener("itemremoved", this._dataChangingBound);
-                        this._repeater.data.removeEventListener("reload", this._dataChangingBound);
-                    }
-                },
-
-                _addDataChangingEvents: function NavBarContainer_addDataChangingEvents(bindingList) {
-                    bindingList.addEventListener("itemchanged", this._dataChangingBound);
-                    bindingList.addEventListener("iteminserted", this._dataChangingBound);
-                    bindingList.addEventListener("itemmoved", this._dataChangingBound);
-                    bindingList.addEventListener("itemremoved", this._dataChangingBound);
-                    bindingList.addEventListener("reload", this._dataChangingBound);
-                },
-
-                _mouseleave: function NavBarContainer_mouseleave() {
-                    if (this._mouseInViewport) {
-                        this._mouseInViewport = false;
-                        this._updateArrows();
-                    }
-                },
-
-                _MSPointerDown: function NavBarContainer_MSPointerDown(ev) {
-                    if (ev.pointerType === PT_TOUCH) {
-                        if (this._mouseInViewport) {
-                            this._mouseInViewport = false;
-                            this._updateArrows();
-                        }
-                    }
-                },
-
-                _MSPointerMove: function NavBarContainer_MSPointerMove(ev) {
-                    if (ev.pointerType !== PT_TOUCH) {
-                        if (!this._mouseInViewport) {
-                            this._mouseInViewport = true;
-                            this._updateArrows();
-                        }
-                    }
-                },
-
-                _setupTree: function NavBarContainer_setupTree() {
-                    this._animateNextPreviousButtons = Promise.wrap();
-                    this._element.addEventListener('mouseleave', this._mouseleave.bind(this));
-                    _ElementUtilities._addEventListener(this._element, 'pointerdown', this._MSPointerDown.bind(this));
-                    _ElementUtilities._addEventListener(this._element, 'pointermove', this._MSPointerMove.bind(this));
-                    _ElementUtilities._addEventListener(this._element, "focusin", this._focusHandler.bind(this), false);
-
-                    this._pageindicatorsEl = _Global.document.createElement('div');
-                    _ElementUtilities.addClass(this._pageindicatorsEl, NavBarContainer._ClassName.pageindicators);
-                    this._element.appendChild(this._pageindicatorsEl);
-
-                    this._ariaStartMarker = _Global.document.createElement("div");
-                    this._element.appendChild(this._ariaStartMarker);
-
-                    this._viewportEl = _Global.document.createElement('div');
-                    _ElementUtilities.addClass(this._viewportEl, NavBarContainer._ClassName.viewport);
-                    this._element.appendChild(this._viewportEl);
-                    this._viewportEl.setAttribute("role", "group");
-                    this._viewportEl.setAttribute("aria-label", strings.navBarContainerViewportAriaLabel);
-
-                    this._boundResizeHandler = this._resizeHandler.bind(this);
-                    _ElementUtilities._resizeNotifier.subscribe(this._element, this._boundResizeHandler);
-                    this._viewportEl.addEventListener("mselementresize", this._resizeHandler.bind(this));
-                    this._viewportEl.addEventListener("scroll", this._scrollHandler.bind(this));
-                    this._viewportEl.addEventListener("MSManipulationStateChanged", this._MSManipulationStateChangedHandler.bind(this));
-
-                    this._ariaEndMarker = _Global.document.createElement("div");
-                    this._element.appendChild(this._ariaEndMarker);
-
-                    this._surfaceEl = _Global.document.createElement('div');
-                    _ElementUtilities.addClass(this._surfaceEl, NavBarContainer._ClassName.surface);
-                    this._viewportEl.appendChild(this._surfaceEl);
-
-                    this._surfaceEl.addEventListener("_invoked", this._navbarCommandInvokedHandler.bind(this));
-                    this._surfaceEl.addEventListener("_splittoggle", this._navbarCommandSplitToggleHandler.bind(this));
-                    _ElementUtilities._addEventListener(this._surfaceEl, "focusin", this._itemsFocusHandler.bind(this), false);
-                    this._surfaceEl.addEventListener("keydown", this._keyDownHandler.bind(this));
-
-                    // Reparent NavBarCommands which were in declarative markup
-                    var tempEl = this.element.firstElementChild;
-                    while (tempEl !== this._pageindicatorsEl) {
-                        this._surfaceEl.appendChild(tempEl);
-                        ControlProcessor.process(tempEl);
-                        tempEl = this.element.firstElementChild;
-                    }
-
-                    this._leftArrowEl = _Global.document.createElement('div');
-                    _ElementUtilities.addClass(this._leftArrowEl, NavBarContainer._ClassName.navleftarrow);
-                    _ElementUtilities.addClass(this._leftArrowEl, NavBarContainer._ClassName.navarrow);
-                    this._element.appendChild(this._leftArrowEl);
-                    this._leftArrowEl.addEventListener('click', this._goLeft.bind(this));
-                    this._leftArrowEl.style.opacity = 0;
-                    this._leftArrowEl.style.visibility = 'hidden';
-                    this._leftArrowFadeOut = Promise.wrap();
-
-                    this._rightArrowEl = _Global.document.createElement('div');
-                    _ElementUtilities.addClass(this._rightArrowEl, NavBarContainer._ClassName.navrightarrow);
-                    _ElementUtilities.addClass(this._rightArrowEl, NavBarContainer._ClassName.navarrow);
-                    this._element.appendChild(this._rightArrowEl);
-                    this._rightArrowEl.addEventListener('click', this._goRight.bind(this));
-                    this._rightArrowEl.style.opacity = 0;
-                    this._rightArrowEl.style.visibility = 'hidden';
-                    this._rightArrowFadeOut = Promise.wrap();
-
-                    this._keyboardBehavior = new _KeyboardBehavior._KeyboardBehavior(this._surfaceEl, {
-                        scroller: this._viewportEl
-                    });
-                    this._winKeyboard = new _KeyboardBehavior._WinKeyboard(this._surfaceEl);
-                },
-
-                _goRight: function NavBarContainer_goRight() {
-                    if (this._sizes.rtl) {
-                        this._goPrev();
-                    } else {
-                        this._goNext();
-                    }
-                },
-
-                _goLeft: function NavBarContainer_goLeft() {
-                    if (this._sizes.rtl) {
-                        this._goNext();
-                    } else {
-                        this._goPrev();
-                    }
-                },
-
-                _goNext: function NavBarContainer_goNext() {
-                    this._measure();
-                    var itemsPerPage = this._sizes.rowsPerPage * this._sizes.columnsPerPage;
-                    var targetPage = Math.min(Math.floor(this._keyboardBehavior.currentIndex / itemsPerPage) + 1, this._sizes.pages - 1);
-                    this._keyboardBehavior.currentIndex = Math.min(itemsPerPage * targetPage, this._surfaceEl.children.length);
-                    this._keyboardBehavior._focus();
-                },
-
-                _goPrev: function NavBarContainer_goPrev() {
-                    this._measure();
-                    var itemsPerPage = this._sizes.rowsPerPage * this._sizes.columnsPerPage;
-                    var targetPage = Math.max(0, Math.floor(this._keyboardBehavior.currentIndex / itemsPerPage) - 1);
-                    this._keyboardBehavior.currentIndex = Math.max(itemsPerPage * targetPage, 0);
-                    this._keyboardBehavior._focus();
-                },
-
-                _currentPage: {
-                    get: function () {
-                        if (this.layout === _UI.Orientation.horizontal) {
-                            this._measure();
-                            if (this._sizes.viewportOffsetWidth > 0) {
-                                return Math.min(this._sizes.pages - 1, Math.round(this._scrollPosition / this._sizes.viewportOffsetWidth));
-                            }
-                        }
-                        return 0;
-                    }
-                },
-
-                _resizeHandler: function NavBarContainer_resizeHandler() {
-                    if (this._disposed) { return; }
-                    if (!this._measured) { return; }
-                    var viewportResized = this.layout === _UI.Orientation.horizontal
-                            ? this._sizes.viewportOffsetWidth !== parseFloat(_Global.getComputedStyle(this._viewportEl).width)
-                            : this._sizes.viewportOffsetHeight !== parseFloat(_Global.getComputedStyle(this._viewportEl).height);
-                    if (!viewportResized) { return; }
-
-                    this._measured = false;
-
-                    if (!this._pendingResize) {
-                        this._pendingResize = true;
-
-                        this._resizeImplBound = this._resizeImplBound || this._resizeImpl.bind(this);
-
-                        this._updateAppBarReference();
-
-                        if (this._appBarEl && this._appBarEl.winControl && this._appBarEl.winControl.hidden) {
-                            // Do resize lazily.
-                            Scheduler.schedule(this._resizeImplBound, Scheduler.Priority.idle, null, "WinJS.UI.NavBarContainer._resizeImpl");
-                            this._appBarEl.addEventListener('beforeshow', this._resizeImplBound);
-                        } else {
-                            // Do resize now
-                            this._resizeImpl();
-                        }
-                    }
-                },
-
-                _resizeImpl: function NavBarContainer_resizeImpl() {
-                    if (!this._disposed && this._pendingResize) {
-                        this._pendingResize = false;
-                        if (this._appBarEl) {
-                            this._appBarEl.removeEventListener('beforeshow', this._resizeImplBound);
-                        }
-
-                        this._keyboardBehavior.currentIndex = 0;
-                        if (this.element.contains(_Global.document.activeElement)) {
-                            this._keyboardBehavior._focus(this._keyboardBehavior.currentIndex);
-                        }
-                        this._closeSplitIfOpen();
-                        this._ensureVisible(this._keyboardBehavior.currentIndex, true);
-                        this._updatePageUI();
-                    }
-                },
-
-                _keyDownHandler: function NavBarContainer_keyDownHandler(ev) {
-                    var keyCode = ev.keyCode;
-                    if (!ev.altKey && (keyCode === Key.pageUp || keyCode === Key.pageDown)) {
-                        var srcElement = ev.target;
-                        if (_ElementUtilities._matchesSelector(srcElement, ".win-interactive, .win-interactive *")) {
-                            return;
-                        }
-
-                        var index = this._keyboardBehavior.currentIndex;
-                        this._measure();
-
-                        var sizes = this._sizes;
-                        var page = Math.floor(index / (sizes.columnsPerPage * sizes.rowsPerPage));
-
-                        var scrollPositionTarget = null;
-                        if (keyCode === Key.pageUp) {
-                            if (this.layout === _UI.Orientation.horizontal) {
-                                var indexOfFirstItemOnPage = page * sizes.columnsPerPage * sizes.rowsPerPage;
-                                if (index === indexOfFirstItemOnPage && this._surfaceEl.children[index].winControl._buttonEl === _Global.document.activeElement) {
-                                    // First item on page so go back 1 page.
-                                    index = index - sizes.columnsPerPage * sizes.rowsPerPage;
-                                } else {
-                                    // Not first item on page so go to the first item on page.
-                                    index = indexOfFirstItemOnPage;
-                                }
-                            } else {
-                                var currentItem = this._surfaceEl.children[index];
-                                var top = currentItem.offsetTop;
-                                var bottom = top + currentItem.offsetHeight;
-                                var scrollPosition = this._zooming ? this._zoomPosition : this._scrollPosition;
-
-                                if (top >= scrollPosition && bottom < scrollPosition + sizes.viewportOffsetHeight) {
-                                    // current item is fully on screen.
-                                    while (index > 0 &&
-                                        this._surfaceEl.children[index - 1].offsetTop > scrollPosition) {
-                                        index--;
-                                    }
-                                }
-
-                                if (this._keyboardBehavior.currentIndex === index) {
-                                    var scrollPositionForOnePageAboveItem = bottom - sizes.viewportOffsetHeight;
-                                    index = Math.max(0, index - 1);
-                                    while (index > 0 &&
-                                        this._surfaceEl.children[index - 1].offsetTop > scrollPositionForOnePageAboveItem) {
-                                        index--;
-                                    }
-                                    if (index > 0) {
-                                        scrollPositionTarget = this._surfaceEl.children[index].offsetTop - this._sizes.itemMarginTop;
-                                    } else {
-                                        scrollPositionTarget = 0;
-                                    }
-                                }
-                            }
-
-                            index = Math.max(index, 0);
-                            this._keyboardBehavior.currentIndex = index;
-
-                            var element = this._surfaceEl.children[index].winControl._buttonEl;
-
-                            if (scrollPositionTarget !== null) {
-                                this._scrollTo(scrollPositionTarget);
-                            }
-
-                            _ElementUtilities._setActive(element, this._viewportEl);
-                        } else {
-                            if (this.layout === _UI.Orientation.horizontal) {
-                                var indexOfLastItemOnPage = (page + 1) * sizes.columnsPerPage * sizes.rowsPerPage - 1;
-
-                                if (index === indexOfLastItemOnPage) {
-                                    // Last item on page so go forward 1 page.
-                                    index = index + sizes.columnsPerPage * sizes.rowsPerPage;
-                                } else {
-                                    // Not Last item on page so go to last item on page.
-                                    index = indexOfLastItemOnPage;
-                                }
-                            } else {
-                                var currentItem = this._surfaceEl.children[this._keyboardBehavior.currentIndex];
-                                var top = currentItem.offsetTop;
-                                var bottom = top + currentItem.offsetHeight;
-                                var scrollPosition = this._zooming ? this._zoomPosition : this._scrollPosition;
-
-                                if (top >= scrollPosition && bottom < scrollPosition + sizes.viewportOffsetHeight) {
-                                    // current item is fully on screen.
-                                    while (index < this._surfaceEl.children.length - 1 &&
-                                        this._surfaceEl.children[index + 1].offsetTop + this._surfaceEl.children[index + 1].offsetHeight < scrollPosition + sizes.viewportOffsetHeight) {
-                                        index++;
-                                    }
-                                }
-
-                                if (index === this._keyboardBehavior.currentIndex) {
-                                    var scrollPositionForOnePageBelowItem = top + sizes.viewportOffsetHeight;
-                                    index = Math.min(this._surfaceEl.children.length - 1, index + 1);
-                                    while (index < this._surfaceEl.children.length - 1 &&
-                                        this._surfaceEl.children[index + 1].offsetTop + this._surfaceEl.children[index + 1].offsetHeight < scrollPositionForOnePageBelowItem) {
-                                        index++;
-                                    }
-
-                                    if (index < this._surfaceEl.children.length - 1) {
-                                        scrollPositionTarget = this._surfaceEl.children[index + 1].offsetTop - this._sizes.viewportOffsetHeight;
-                                    } else {
-                                        scrollPositionTarget = this._scrollLength - this._sizes.viewportOffsetHeight;
-                                    }
-                                }
-                            }
-
-                            index = Math.min(index, this._surfaceEl.children.length - 1);
-                            this._keyboardBehavior.currentIndex = index;
-
-                            var element = this._surfaceEl.children[index].winControl._buttonEl;
-
-                            if (scrollPositionTarget !== null) {
-                                this._scrollTo(scrollPositionTarget);
-                            }
-
-                            try {
-                                _ElementUtilities._setActive(element, this._viewportEl);
-                            } catch (e) {
-                            }
-                        }
-                    }
-                },
-
-                _focusHandler: function NavBarContainer_focusHandler(ev) {
-                    var srcElement = ev.target;
-                    if (!this._surfaceEl.contains(srcElement)) {
-                        // Forward focus from NavBarContainer, viewport or surface to the currentIndex.
-                        this._skipEnsureVisible = true;
-                        this._keyboardBehavior._focus(this._keyboardBehavior.currentIndex);
-                    }
-                },
-
-                _itemsFocusHandler: function NavBarContainer_itemsFocusHandler(ev) {
-                    // Find the item which is being focused and scroll it to view.
-                    var srcElement = ev.target;
-                    if (srcElement === this._surfaceEl) {
-                        return;
-                    }
-
-                    while (srcElement.parentNode !== this._surfaceEl) {
-                        srcElement = srcElement.parentNode;
-                    }
-
-                    var index = -1;
-                    while (srcElement) {
-                        index++;
-                        srcElement = srcElement.previousSibling;
-                    }
-
-                    if (this._skipEnsureVisible) {
-                        this._skipEnsureVisible = false;
-                    } else {
-                        this._ensureVisible(index);
-                    }
-                },
-
-                _ensureVisible: function NavBarContainer_ensureVisible(index, withoutAnimation) {
-                    this._measure();
-
-                    if (this.layout === _UI.Orientation.horizontal) {
-                        var page = Math.floor(index / (this._sizes.rowsPerPage * this._sizes.columnsPerPage));
-                        this._scrollTo(page * this._sizes.viewportOffsetWidth, withoutAnimation);
-                    } else {
-                        var element = this._surfaceEl.children[index];
-                        var maxScrollPosition;
-                        if (index > 0) {
-                            maxScrollPosition = element.offsetTop - this._sizes.itemMarginTop;
-                        } else {
-                            maxScrollPosition = 0;
-                        }
-                        var minScrollPosition;
-                        if (index < this._surfaceEl.children.length - 1) {
-                            minScrollPosition = this._surfaceEl.children[index + 1].offsetTop - this._sizes.viewportOffsetHeight;
-                        } else {
-                            minScrollPosition = this._scrollLength - this._sizes.viewportOffsetHeight;
-                        }
-
-                        var newScrollPosition = this._zooming ? this._zoomPosition : this._scrollPosition;
-                        newScrollPosition = Math.max(newScrollPosition, minScrollPosition);
-                        newScrollPosition = Math.min(newScrollPosition, maxScrollPosition);
-                        this._scrollTo(newScrollPosition, withoutAnimation);
-                    }
-                },
-
-                _scrollTo: function NavBarContainer_scrollTo(targetScrollPosition, withoutAnimation) {
-                    this._measure();
-                    if (this.layout === _UI.Orientation.horizontal) {
-                        targetScrollPosition = Math.max(0, Math.min(this._scrollLength - this._sizes.viewportOffsetWidth, targetScrollPosition));
-                    } else {
-                        targetScrollPosition = Math.max(0, Math.min(this._scrollLength - this._sizes.viewportOffsetHeight, targetScrollPosition));
-                    }
-
-                    if (withoutAnimation) {
-                        if (Math.abs(this._scrollPosition - targetScrollPosition) > 1) {
-                            this._zooming = false;
-
-                            this._scrollPosition = targetScrollPosition;
-                            this._updatePageUI();
-                            if (!this._duringForceLayout) {
-                                this._closeSplitIfOpen();
-                            }
-
-                            var newScrollPos = {};
-                            newScrollPos[(this.layout === _UI.Orientation.horizontal ? "scrollLeft" : "scrollTop")] = targetScrollPosition;
-                            _ElementUtilities.setScrollPosition(this._viewportEl, newScrollPos);
-                        }
-                    } else {
-                        if ((!this._zooming && Math.abs(this._scrollPosition - targetScrollPosition) > 1) || (this._zooming && Math.abs(this._zoomPosition - targetScrollPosition) > 1)) {
-                            this._zoomPosition = targetScrollPosition;
-
-                            this._zooming = true;
-
-                            if (this.layout === _UI.Orientation.horizontal) {
-                                this._viewportEl.style.msScrollSnapType = "none";
-                                _ElementUtilities._zoomTo(this._viewportEl, { contentX: targetScrollPosition, contentY: 0, viewportX: 0, viewportY: 0 });
-                            } else {
-                                _ElementUtilities._zoomTo(this._viewportEl, { contentX: 0, contentY: targetScrollPosition, viewportX: 0, viewportY: 0 });
-                            }
-
-                            this._closeSplitIfOpen();
-                        }
-                    }
-                },
-
-                _MSManipulationStateChangedHandler: function NavBarContainer_MSManipulationStateChangedHandler(e) {
-                    this._currentManipulationState = e.currentState;
-
-                    if (e.currentState === e.MS_MANIPULATION_STATE_ACTIVE) {
-                        this._viewportEl.style.msScrollSnapType = "";
-                        this._zooming = false;
-                    }
-
-                    _Global.clearTimeout(this._manipulationStateTimeoutId);
-                    // The extra stop event is firing when an zoomTo is called during another zoomTo and
-                    // also the first zoomTo after a resize.
-                    if (e.currentState === e.MS_MANIPULATION_STATE_STOPPED) {
-                        this._manipulationStateTimeoutId = _Global.setTimeout(function () {
-                            this._viewportEl.style.msScrollSnapType = "";
-                            this._zooming = false;
-                            this._updateCurrentIndexIfPageChanged();
-                        }.bind(this), 100);
-                    }
-                },
-
-                _scrollHandler: function NavBarContainer_scrollHandler() {
-                    if (this._disposed) { return; }
-
-                    this._measured = false;
-                    if (!this._checkingScroll) {
-                        var that = this;
-                        this._checkingScroll = _BaseUtils._requestAnimationFrame(function () {
-                            if (that._disposed) { return; }
-                            that._checkingScroll = null;
-
-                            var newScrollPosition = _ElementUtilities.getScrollPosition(that._viewportEl)[(that.layout === _UI.Orientation.horizontal ? "scrollLeft" : "scrollTop")];
-                            if (newScrollPosition !== that._scrollPosition) {
-                                that._scrollPosition = newScrollPosition;
-                                that._closeSplitIfOpen();
-                            }
-                            that._updatePageUI();
-
-                            if (!that._zooming && that._currentManipulationState === MS_MANIPULATION_STATE_STOPPED) {
-                                that._updateCurrentIndexIfPageChanged();
-                            }
-                        });
-                    }
-                },
-
-                _updateCurrentIndexIfPageChanged: function NavBarContainer_updateCurrentIndexIfPageChanged() {
-                    // If you change pages via pagination arrows, mouse wheel, or panning we need to update the current
-                    // item to be the first item on the new page.
-                    if (this.layout === _UI.Orientation.horizontal) {
-                        this._measure();
-                        var currentPage = this._currentPage;
-                        var firstIndexOnPage = currentPage * this._sizes.rowsPerPage * this._sizes.columnsPerPage;
-                        var lastIndexOnPage = (currentPage + 1) * this._sizes.rowsPerPage * this._sizes.columnsPerPage - 1;
-
-                        if (this._keyboardBehavior.currentIndex < firstIndexOnPage || this._keyboardBehavior.currentIndex > lastIndexOnPage) {
-                            // Page change occurred.
-                            this._keyboardBehavior.currentIndex = firstIndexOnPage;
-
-                            if (this.element.contains(_Global.document.activeElement)) {
-                                this._keyboardBehavior._focus(this._keyboardBehavior.currentIndex);
-                            }
-                        }
-                    }
-                },
-
-                _measure: function NavBarContainer_measure() {
-                    if (!this._measured) {
-                        this._resizeImpl();
-                        this._writeProfilerMark("measure,StartTM");
-
-                        var sizes = this._sizes;
-
-                        sizes.rtl = _Global.getComputedStyle(this._element).direction === "rtl";
-
-                        var itemCount = this._surfaceEl.children.length;
-                        if (itemCount > 0) {
-                            if (!this._sizes.itemMeasured) {
-                                this._writeProfilerMark("measureItem,StartTM");
-
-                                var elementToMeasure = this._surfaceEl.firstElementChild;
-                                // Clear inline margins set by NavBarContainer before measuring.
-                                elementToMeasure.style.margin = "";
-                                elementToMeasure.style.width = "";
-                                var elementComputedStyle = _Global.getComputedStyle(elementToMeasure);
-                                sizes.itemOffsetWidth = parseFloat(_Global.getComputedStyle(elementToMeasure).width);
-                                if (elementToMeasure.offsetWidth === 0) {
-                                    sizes.itemOffsetWidth = 0;
-                                }
-                                sizes.itemMarginLeft = parseFloat(elementComputedStyle.marginLeft);
-                                sizes.itemMarginRight = parseFloat(elementComputedStyle.marginRight);
-                                sizes.itemWidth = sizes.itemOffsetWidth + sizes.itemMarginLeft + sizes.itemMarginRight;
-                                sizes.itemOffsetHeight = parseFloat(_Global.getComputedStyle(elementToMeasure).height);
-                                if (elementToMeasure.offsetHeight === 0) {
-                                    sizes.itemOffsetHeight = 0;
-                                }
-                                sizes.itemMarginTop = parseFloat(elementComputedStyle.marginTop);
-                                sizes.itemMarginBottom = parseFloat(elementComputedStyle.marginBottom);
-                                sizes.itemHeight = sizes.itemOffsetHeight + sizes.itemMarginTop + sizes.itemMarginBottom;
-                                if (sizes.itemOffsetWidth > 0 && sizes.itemOffsetHeight > 0) {
-                                    sizes.itemMeasured = true;
-                                }
-                                this._writeProfilerMark("measureItem,StopTM");
-                            }
-
-                            sizes.viewportOffsetWidth = parseFloat(_Global.getComputedStyle(this._viewportEl).width);
-                            if (this._viewportEl.offsetWidth === 0) {
-                                sizes.viewportOffsetWidth = 0;
-                            }
-                            sizes.viewportOffsetHeight = parseFloat(_Global.getComputedStyle(this._viewportEl).height);
-                            if (this._viewportEl.offsetHeight === 0) {
-                                sizes.viewportOffsetHeight = 0;
-                            }
-
-                            if (sizes.viewportOffsetWidth === 0 || sizes.itemOffsetHeight === 0) {
-                                this._measured = false;
-                            } else {
-                                this._measured = true;
-                            }
-
-                            if (this.layout === _UI.Orientation.horizontal) {
-                                this._scrollPosition = _ElementUtilities.getScrollPosition(this._viewportEl).scrollLeft;
-
-                                sizes.leadingEdge = this._leftArrowEl.offsetWidth + parseInt(_Global.getComputedStyle(this._leftArrowEl).marginLeft) + parseInt(_Global.getComputedStyle(this._leftArrowEl).marginRight);
-                                var usableSpace = sizes.viewportOffsetWidth - sizes.leadingEdge * 2;
-                                sizes.maxColumns = sizes.itemWidth ? Math.max(1, Math.floor(usableSpace / sizes.itemWidth)) : 1;
-                                sizes.rowsPerPage = Math.min(this.maxRows, Math.ceil(itemCount / sizes.maxColumns));
-                                sizes.columnsPerPage = Math.min(sizes.maxColumns, itemCount);
-                                sizes.pages = Math.ceil(itemCount / (sizes.columnsPerPage * sizes.rowsPerPage));
-                                sizes.trailingEdge = sizes.leadingEdge;
-                                sizes.extraSpace = usableSpace - (sizes.columnsPerPage * sizes.itemWidth);
-
-                                this._scrollLength = sizes.viewportOffsetWidth * sizes.pages;
-
-                                this._keyboardBehavior.fixedSize = sizes.rowsPerPage;
-                                this._keyboardBehavior.fixedDirection = _KeyboardBehavior._KeyboardBehavior.FixedDirection.height;
-
-                                this._surfaceEl.style.height = (sizes.itemHeight * sizes.rowsPerPage) + "px";
-                                this._surfaceEl.style.width = this._scrollLength + "px";
-                            } else {
-                                this._scrollPosition = this._viewportEl.scrollTop;
-
-                                sizes.leadingEdge = 0;
-                                sizes.rowsPerPage = itemCount;
-                                sizes.columnsPerPage = 1;
-                                sizes.pages = 1;
-                                sizes.trailingEdge = 0;
-
-                                // Reminder there is margin collapsing so just use scrollHeight instead of itemHeight * itemCount
-                                this._scrollLength = this._viewportEl.scrollHeight;
-
-                                this._keyboardBehavior.fixedSize = sizes.columnsPerPage;
-                                this._keyboardBehavior.fixedDirection = _KeyboardBehavior._KeyboardBehavior.FixedDirection.width;
-
-                                this._surfaceEl.style.height = "";
-                                this._surfaceEl.style.width = "";
-                            }
-
-                            this._updateGridStyles();
-                        } else {
-                            sizes.pages = 1;
-                            this._hasPreviousContent = false;
-                            this._hasNextContent = false;
-                            this._surfaceEl.style.height = "";
-                            this._surfaceEl.style.width = "";
-                        }
-
-                        this._writeProfilerMark("measure,StopTM");
-                    }
-                },
-
-                _updateGridStyles: function NavBarContainer_updateGridStyles() {
-                    var sizes = this._sizes;
-                    var itemCount = this._surfaceEl.children.length;
-
-                    for (var index = 0; index < itemCount; index++) {
-                        var itemEl = this._surfaceEl.children[index];
-
-                        var marginRight;
-                        var marginLeft;
-                        var width = "";
-
-                        if (this.layout === _UI.Orientation.horizontal) {
-                            var column = Math.floor(index / sizes.rowsPerPage);
-                            var isFirstColumnOnPage = column % sizes.columnsPerPage === 0;
-                            var isLastColumnOnPage = column % sizes.columnsPerPage === sizes.columnsPerPage - 1;
-
-                            var extraTrailingMargin = sizes.trailingEdge;
-                            if (this.fixedSize) {
-                                extraTrailingMargin += sizes.extraSpace;
-                            } else {
-                                var spaceToDistribute = sizes.extraSpace - (sizes.maxColumns - sizes.columnsPerPage) * sizes.itemWidth;
-                                width = (sizes.itemOffsetWidth + (spaceToDistribute / sizes.maxColumns)) + "px";
-                            }
-
-                            var extraMarginRight;
-                            var extraMarginLeft;
-
-                            if (sizes.rtl) {
-                                extraMarginRight = (isFirstColumnOnPage ? sizes.leadingEdge : 0);
-                                extraMarginLeft = (isLastColumnOnPage ? extraTrailingMargin : 0);
-                            } else {
-                                extraMarginRight = (isLastColumnOnPage ? extraTrailingMargin : 0);
-                                extraMarginLeft = (isFirstColumnOnPage ? sizes.leadingEdge : 0);
-                            }
-
-                            marginRight = extraMarginRight + sizes.itemMarginRight + "px";
-                            marginLeft = extraMarginLeft + sizes.itemMarginLeft + "px";
-                        } else {
-                            marginRight = "";
-                            marginLeft = "";
-                        }
-
-                        if (itemEl.style.marginRight !== marginRight) {
-                            itemEl.style.marginRight = marginRight;
-                        }
-                        if (itemEl.style.marginLeft !== marginLeft) {
-                            itemEl.style.marginLeft = marginLeft;
-                        }
-                        if (itemEl.style.width !== width) {
-                            itemEl.style.width = width;
-                        }
-                    }
-                },
-
-                _updatePageUI: function NavBarContainer_updatePageUI() {
-                    this._measure();
-                    var currentPage = this._currentPage;
-
-                    this._hasPreviousContent = (currentPage !== 0);
-                    this._hasNextContent = (currentPage < this._sizes.pages - 1);
-                    this._updateArrows();
-
-                    // Always output the pagination indicators so they reserves up space.
-                    if (this._indicatorCount !== this._sizes.pages) {
-                        this._indicatorCount = this._sizes.pages;
-                        this._pageindicatorsEl.innerHTML = new Array(this._sizes.pages + 1).join('<span class="' + NavBarContainer._ClassName.indicator + '"></span>');
-                    }
-
-                    for (var i = 0; i < this._pageindicatorsEl.children.length; i++) {
-                        if (i === currentPage) {
-                            _ElementUtilities.addClass(this._pageindicatorsEl.children[i], NavBarContainer._ClassName.currentindicator);
-                        } else {
-                            _ElementUtilities.removeClass(this._pageindicatorsEl.children[i], NavBarContainer._ClassName.currentindicator);
-                        }
-                    }
-
-                    if (this._sizes.pages > 1) {
-                        this._viewportEl.style.overflowX = this._panningDisabled ? "hidden" : "";
-                        this._pageindicatorsEl.style.visibility = "";
-                    } else {
-                        this._viewportEl.style.overflowX = "hidden";
-                        this._pageindicatorsEl.style.visibility = "hidden";
-                    }
-
-                    if (this._sizes.pages <= 1 || this._layout !== _UI.Orientation.horizontal) {
-                        this._ariaStartMarker.removeAttribute("aria-flowto");
-                        this._ariaEndMarker.removeAttribute("x-ms-aria-flowfrom");
-                    } else {
-                        var firstIndexOnCurrentPage = currentPage * this._sizes.rowsPerPage * this._sizes.columnsPerPage;
-                        var firstItem = this._surfaceEl.children[firstIndexOnCurrentPage].winControl._buttonEl;
-                        _ElementUtilities._ensureId(firstItem);
-                        this._ariaStartMarker.setAttribute("aria-flowto", firstItem.id);
-
-                        var lastIndexOnCurrentPage = Math.min(this._surfaceEl.children.length - 1, (currentPage + 1) * this._sizes.rowsPerPage * this._sizes.columnsPerPage - 1);
-                        var lastItem = this._surfaceEl.children[lastIndexOnCurrentPage].winControl._buttonEl;
-                        _ElementUtilities._ensureId(lastItem);
-                        this._ariaEndMarker.setAttribute("x-ms-aria-flowfrom", lastItem.id);
-                    }
-                },
-
-                _closeSplitIfOpen: function NavBarContainer_closeSplitIfOpen() {
-                    if (this._currentSplitNavItem) {
-                        if (this._currentSplitNavItem.splitOpened) {
-                            this._currentSplitNavItem._toggleSplit();
-                        }
-                        this._currentSplitNavItem = null;
-                    }
-                },
-
-                _updateArrows: function NavBarContainer_updateArrows() {
-                    var hasLeftContent = this._sizes.rtl ? this._hasNextContent : this._hasPreviousContent;
-                    var hasRightContent = this._sizes.rtl ? this._hasPreviousContent : this._hasNextContent;
-
-                    var that = this;
-                    // Previous and next are the arrows, not states. On mouse hover the arrows fade in immediately. If you
-                    // mouse out the arrows fade out after a delay. When you reach the last/first page, the corresponding
-                    // arrow fades out immediately as well.
-                    if ((this._mouseInViewport || this._panningDisabled) && hasLeftContent) {
-                        this._leftArrowWaitingToFadeOut && this._leftArrowWaitingToFadeOut.cancel();
-                        this._leftArrowWaitingToFadeOut = null;
-                        this._leftArrowFadeOut && this._leftArrowFadeOut.cancel();
-                        this._leftArrowFadeOut = null;
-                        this._leftArrowEl.style.visibility = '';
-                        this._leftArrowFadeIn = this._leftArrowFadeIn || Animations.fadeIn(this._leftArrowEl);
-                    } else {
-                        if (hasLeftContent) {
-                            // If we need a delayed fade out and we are already running a delayed fade out just use that one, don't extend it.
-                            // Otherwise create a delayed fade out.
-                            this._leftArrowWaitingToFadeOut = this._leftArrowWaitingToFadeOut || Promise.timeout(_TransitionAnimation._animationTimeAdjustment(buttonFadeDelay));
-                        } else {
-                            // If we need a immediate fade out and already have a delayed fade out cancel that one and create an immediate one.
-                            this._leftArrowWaitingToFadeOut && this._leftArrowWaitingToFadeOut.cancel();
-                            this._leftArrowWaitingToFadeOut = Promise.wrap();
-                        }
-                        this._leftArrowWaitingToFadeOut.then(function () {
-                            // After the delay cancel any fade in if running. If we already were fading out continue it otherwise start the fade out.
-                            this._leftArrowFadeIn && this._leftArrowFadeIn.cancel();
-                            this._leftArrowFadeIn = null;
-                            this._leftArrowFadeOut = this._leftArrowFadeOut || Animations.fadeOut(this._leftArrowEl).then(function () {
-                                that._leftArrowEl.style.visibility = 'hidden';
-                            });
-                        }.bind(this));
-                    }
-
-                    // Same pattern for Next arrow.
-                    if ((this._mouseInViewport || this._panningDisabled) && hasRightContent) {
-                        this._rightArrowWaitingToFadeOut && this._rightArrowWaitingToFadeOut.cancel();
-                        this._rightArrowWaitingToFadeOut = null;
-                        this._rightArrowFadeOut && this._rightArrowFadeOut.cancel();
-                        this._rightArrowFadeOut = null;
-                        this._rightArrowEl.style.visibility = '';
-                        this._rightArrowFadeIn = this._rightArrowFadeIn || Animations.fadeIn(this._rightArrowEl);
-                    } else {
-                        if (hasRightContent) {
-                            this._rightArrowWaitingToFadeOut = this._rightArrowWaitingToFadeOut || Promise.timeout(_TransitionAnimation._animationTimeAdjustment(buttonFadeDelay));
-                        } else {
-                            this._rightArrowWaitingToFadeOut && this._rightArrowWaitingToFadeOut.cancel();
-                            this._rightArrowWaitingToFadeOut = Promise.wrap();
-                        }
-                        this._rightArrowWaitingToFadeOut.then(function () {
-                            this._rightArrowFadeIn && this._rightArrowFadeIn.cancel();
-                            this._rightArrowFadeIn = null;
-                            this._rightArrowFadeOut = this._rightArrowFadeOut || Animations.fadeOut(this._rightArrowEl).then(function () {
-                                that._rightArrowEl.style.visibility = 'hidden';
-                            });
-                        }.bind(this));
-                    }
-                },
-
-                _navbarCommandInvokedHandler: function NavBarContainer_navbarCommandInvokedHandler(ev) {
-                    var srcElement = ev.target;
-                    var index = -1;
-                    while (srcElement) {
-                        index++;
-                        srcElement = srcElement.previousSibling;
-                    }
-
-                    this._fireEvent(NavBarContainer._EventName.invoked, {
-                        index: index,
-                        navbarCommand: ev.target.winControl,
-                        data: this._repeater ? this._repeater.data.getAt(index) : null
-                    });
-                },
-
-                _navbarCommandSplitToggleHandler: function NavBarContainer_navbarCommandSplitToggleHandler(ev) {
-                    var srcElement = ev.target;
-                    var index = -1;
-                    while (srcElement) {
-                        index++;
-                        srcElement = srcElement.previousSibling;
-                    }
-
-                    var navbarCommand = ev.target.winControl;
-
-                    this._closeSplitIfOpen();
-
-                    if (navbarCommand.splitOpened) {
-                        this._currentSplitNavItem = navbarCommand;
-                    }
-
-                    this._fireEvent(NavBarContainer._EventName.splitToggle, {
-                        opened: navbarCommand.splitOpened,
-                        index: index,
-                        navbarCommand: navbarCommand,
-                        data: this._repeater ? this._repeater.data.getAt(index) : null
-                    });
-                },
-
-                _fireEvent: function NavBarContainer_fireEvent(type, detail) {
-                    var event = _Global.document.createEvent("CustomEvent");
-                    event.initCustomEvent(type, true, false, detail);
-                    this.element.dispatchEvent(event);
-                },
-
-                _writeProfilerMark: function NavBarContainer_writeProfilerMark(text) {
-                    var message = "WinJS.UI.NavBarContainer:" + this._id + ":" + text;
-                    _WriteProfilerMark(message);
-                    _Log.log && _Log.log(message, null, "navbarcontainerprofiler");
-                },
-
-                dispose: function NavBarContainer_dispose() {
-                    /// <signature helpKeyword="WinJS.UI.NavBarContainer.dispose">
-                    /// <summary locid="WinJS.UI.NavBarContainer.dispose">
-                    /// Disposes this control.
-                    /// </summary>
-                    /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                    /// </signature>
-                    if (this._disposed) {
-                        return;
-                    }
-                    this._disposed = true;
-
-                    if (this._appBarEl) {
-                        this._appBarEl.removeEventListener('beforeshow', this._closeSplitAndResetBound);
-                        this._appBarEl.removeEventListener('beforeshow', this._resizeImplBound);
-                    }
-
-                    Navigation.removeEventListener('navigated', this._closeSplitAndResetBound);
-
-                    this._leftArrowWaitingToFadeOut && this._leftArrowWaitingToFadeOut.cancel();
-                    this._leftArrowFadeOut && this._leftArrowFadeOut.cancel();
-                    this._leftArrowFadeIn && this._leftArrowFadeIn.cancel();
-                    this._rightArrowWaitingToFadeOut && this._rightArrowWaitingToFadeOut.cancel();
-                    this._rightArrowFadeOut && this._rightArrowFadeOut.cancel();
-                    this._rightArrowFadeIn && this._rightArrowFadeIn.cancel();
-
-                    _ElementUtilities._resizeNotifier.unsubscribe(this._element, this._boundResizeHandler);
-
-                    this._removeDataChangingEvents();
-                    this._removeDataChangedEvents();
-                }
-            }, {
-                // Names of classes used by the NavBarContainer.
-                _ClassName: {
-                    navbarcontainer: "win-navbarcontainer",
-                    pageindicators: "win-navbarcontainer-pageindicator-box",
-                    indicator: "win-navbarcontainer-pageindicator",
-                    currentindicator: "win-navbarcontainer-pageindicator-current",
-                    vertical: "win-navbarcontainer-vertical",
-                    horizontal: "win-navbarcontainer-horizontal",
-                    viewport: "win-navbarcontainer-viewport",
-                    surface: "win-navbarcontainer-surface",
-                    navarrow: "win-navbarcontainer-navarrow",
-                    navleftarrow: "win-navbarcontainer-navleft",
-                    navrightarrow: "win-navbarcontainer-navright"
-                },
-                _EventName: {
-                    invoked: eventNames.invoked,
-                    splitToggle: eventNames.splittoggle
-                }
-            });
-            _Base.Class.mix(NavBarContainer, _Control.DOMEventMixin);
-            return NavBarContainer;
-        })
-    });
-
-});
-
-// Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('WinJS/Controls/NavBar',[
-    '../Core/_Global',
-    '../Core/_WinRT',
-    '../Core/_Base',
-    '../Core/_BaseUtils',
-    '../Core/_Events',
-    '../Core/_WriteProfilerMark',
-    '../Promise',
-    '../Scheduler',
-    '../Utilities/_ElementUtilities',
-    '../Utilities/_Hoverable',
-    './AppBar',
-    './NavBar/_Command',
-    './NavBar/_Container',
-    'require-style!less/desktop/controls',
-    'require-style!less/phone/controls'
-], function NavBarInit(_Global,_WinRT, _Base, _BaseUtils, _Events, _WriteProfilerMark, Promise, Scheduler, _ElementUtilities, _Hoverable, AppBar, _Command, _Container) {
-    "use strict";
-
-    var customLayout = "custom";
-
-    _Base.Namespace.define("WinJS.UI", {
-        /// <field>
-        /// <summary locid="WinJS.UI.NavBar">
-        /// Displays navigation commands in a toolbar that the user can show or hide.
-        /// </summary>
-        /// <compatibleWith platform="Windows" minVersion="8.1"/>
-        /// </field>
-        /// <icon src="ui_winjs.ui.navbar.12x12.png" width="12" height="12" />
-        /// <icon src="ui_winjs.ui.navbar.16x16.png" width="16" height="16" />
-        /// <htmlSnippet supportsContent="true"><![CDATA[<div data-win-control="WinJS.UI.NavBar">
-        /// <div data-win-control="WinJS.UI.NavBarContainer">
-        /// <div data-win-control="WinJS.UI.NavBarCommand" data-win-options="{location:'/pages/home/home.html',label:'Home',icon:WinJS.UI.AppBarIcon.home}"></div>
-        /// </div>
-        /// </div>]]></htmlSnippet>
-        /// <event name="beforeshow" locid="WinJS.UI.NavBar_e:beforeshow">Raised just before showing the NavBar.</event>
-        /// <event name="aftershow" locid="WinJS.UI.NavBar_e:aftershow">Raised immediately after an NavBar is fully shown.</event>
-        /// <event name="beforehide" locid="WinJS.UI.NavBar_e:beforehide">Raised just before hiding the  NavBar.</event>
-        /// <event name="afterhide" locid="WinJS.UI.NavBar_e:afterhide">Raised immediately after the NavBar is fully hidden.</event>
-        /// <event name="childrenprocessed" locid="WinJS.UI.NavBar_e:childrenprocessed">Fired when children of NavBar control have been processed from a WinJS.UI.processAll call.</event>
-        /// <part name="navbar" class="win-navbar" locid="WinJS.UI.NavBar_part:navbar">Styles the entire NavBar.</part>
-        /// <resource type="javascript" src="//WinJS.3.0/js/base.js" shared="true" />
-        /// <resource type="javascript" src="//WinJS.3.0/js/ui.js" shared="true" />
-        /// <resource type="css" src="//WinJS.3.0/css/ui-dark.css" shared="true" />
-        NavBar: _Base.Namespace._lazy(function () {
-            var childrenProcessedEventName = "childrenprocessed";
-            var createEvent = _Events._createEventProperty;
-
-            var NavBar = _Base.Class.derive(AppBar.AppBar, function NavBar_ctor(element, options) {
-                /// <signature helpKeyword="WinJS.UI.NavBar.NavBar">
-                /// <summary locid="WinJS.UI.NavBar.constructor">
-                /// Creates a new NavBar.
-                /// </summary>
-                /// <param name="element" type="HTMLElement" domElement="true" locid="WinJS.UI.NavBar.constructor_p:element">
-                /// The DOM element that will host the new NavBar control.
-                /// </param>
-                /// <param name="options" type="Object" locid="WinJS.UI.NavBar.constructor_p:options">
-                /// An object that contains one or more property/value pairs to apply to the new control. Each property of the options object corresponds to one of the control's
-                /// properties or events.
-                /// </param>
-                /// <returns type="WinJS.UI.NavBar" locid="WinJS.UI.NavBar.constructor_returnValue">
-                /// The new NavBar control.
-                /// </returns>
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </signature>
-
-                options = options || {};
-
-                // Shallow copy object so we can modify it.
-                options = _BaseUtils._shallowCopy(options);
-
-                // Default to Placement = Top and Layout = Custom
-                options.placement = options.placement || "top";
-                options.layout = customLayout;
-
-                AppBar.AppBar.call(this, element, options);
-
-                this._element.addEventListener("beforeshow", this._handleBeforeShow.bind(this));
-
-                _ElementUtilities.addClass(this.element, NavBar._ClassName.navbar);
-
-                if (_WinRT.Windows.ApplicationModel.DesignMode.designModeEnabled) {
-                    this._processChildren();
-                } else {
-                    Scheduler.schedule(this._processChildren.bind(this), Scheduler.Priority.idle, null, "WinJS.UI.NavBar.processChildren");
-                }
-            }, {
-                // Block others from setting the layout property.
-
-                /// <field type="String" defaultValue="commands" oamOptionsDatatype="WinJS.UI.NavBar.layout" locid="WinJS.UI.NavBar.layout" helpKeyword="WinJS.UI.NavBar.layout">
-                /// The layout of the NavBar contents.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                layout: {
-                    get: function () {
-                        return customLayout;
-                    },
-                    set: function () {
-                        Object.getOwnPropertyDescriptor(AppBar.AppBar.prototype, "layout").set.call(this, customLayout);
-                    },
-                },
-
-                /// <field type="Function" locid="WinJS.UI.NavBar.onchildrenprocessed" helpKeyword="WinJS.UI.NavBar.onchildrenprocessed">
-                /// Raised when children of NavBar control have been processed by a WinJS.UI.processAll call.
-                /// <compatibleWith platform="Windows" minVersion="8.1"/>
-                /// </field>
-                onchildrenprocessed: createEvent(childrenProcessedEventName),
-
-                _processChildren: function NavBar_processChildren() {
-                    // The NavBar control schedules processAll on its children at idle priority to avoid hurting startup
-                    // performance. If the NavBar is shown before the scheduler gets to the idle job, the NavBar will
-                    // immediately call processAll on its children. If your app needs the children to be processed before
-                    // the scheduled job executes, you may call processChildren to force the processAll call.
-                    if (!this._processed) {
-                        this._processed = true;
-
-                        this._writeProfilerMark("processChildren,StartTM");
-                        var that = this;
-                        var processed = Promise.as();
-                        if (this._processors) {
-                            this._processors.forEach(function (processAll) {
-                                for (var i = 0, len = that.element.children.length; i < len; i++) {
-                                    (function (child) {
-                                        processed = processed.then(function () {
-                                            processAll(child);
-                                        });
-                                    }(that.element.children[i]));
-                                }
-                            });
-                        }
-                        return processed.then(
-                            function () {
-                                that._writeProfilerMark("processChildren,StopTM");
-                                that._fireEvent(NavBar._EventName.childrenProcessed);
-                            },
-                            function () {
-                                that._writeProfilerMark("processChildren,StopTM");
-                                that._fireEvent(NavBar._EventName.childrenProcessed);
-                            }
-                        );
-                    }
-                    return Promise.wrap();
-                },
-
-                _show: function NavBar_show() {
-                    // Override _show to call processChildren first.
-                    //
-                    if (this.disabled) {
-                        return;
-                    }
-                    var that = this;
-                    this._processChildren().then(function () {
-                        AppBar.AppBar.prototype._show.call(that);
-                    });
-                },
-
-                _handleBeforeShow: function NavBar_handleBeforeShow() {
-                    // Navbar needs to ensure its elements to have their correct height and width after AppBar changes display="none"
-                    // to  display="" and AppBar needs the elements to have their final height before it measures its own element height
-                    // to do the slide in animation over the correct amount of pixels.
-                    if (this._disposed) {
-                        return;
-                    }
-
-                    var navbarcontainerEls = this.element.querySelectorAll('.win-navbarcontainer');
-                    for (var i = 0; i < navbarcontainerEls.length; i++) {
-                        navbarcontainerEls[i].winControl.forceLayout();
-                    }
-                },
-
-                _fireEvent: function NavBar_fireEvent(type, detail) {
-                    var event = _Global.document.createEvent("CustomEvent");
-                    event.initCustomEvent(type, true, false, detail || {});
-                    this.element.dispatchEvent(event);
-                },
-
-                _writeProfilerMark: function NavBar_writeProfilerMark(text) {
-                    _WriteProfilerMark("WinJS.UI.NavBar:" + this._id + ":" + text);
-                }
-            }, {
-                _ClassName: {
-                    navbar: "win-navbar"
-                },
-                _EventName: {
-                    childrenProcessed: childrenProcessedEventName
-                },
-                isDeclarativeControlContainer: _BaseUtils.markSupportedForProcessing(function (navbar, callback) {
-                    if (navbar._processed) {
-                        for (var i = 0, len = navbar.element.children.length; i < len; i++) {
-                            callback(navbar.element.children[i]);
-                        }
-                    } else {
-                        navbar._processors = navbar._processors || [];
-                        navbar._processors.push(callback);
-                    }
-                })
-            });
-
-            return NavBar;
+            return AppBar;
         })
     });
 
@@ -48755,7 +36541,7 @@ define('WinJS/Controls/ViewBox',[
 });
 
 // Copyright (c) Microsoft Open Technologies, Inc.  All Rights Reserved. Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
-define('ui',[
+define('ui-phone',[
     'WinJS/Core/_WinJS',
     'WinJS/VirtualizedDataSource',
     'WinJS/Controls/IntrinsicControls',
@@ -48763,31 +36549,18 @@ define('ui',[
     'WinJS/Controls/FlipView',
     'WinJS/Controls/ItemContainer',
     'WinJS/Controls/Repeater',
-    'WinJS/Controls/DatePicker',
-    'WinJS/Controls/TimePicker',
-    'WinJS/Controls/BackButton',
-    'WinJS/Controls/Rating',
     'WinJS/Controls/ToggleSwitch',
     'WinJS/Controls/SemanticZoom',
     'WinJS/Controls/Pivot',
-    'WinJS/Controls/Hub',
-    'WinJS/Controls/Flyout',
-    'WinJS/Controls/AppBar',
-    'WinJS/Controls/Menu',
-    'WinJS/Controls/SearchBox',
-    'WinJS/Controls/SettingsFlyout',
-    'WinJS/Controls/NavBar',
-    'WinJS/Controls/Tooltip',
+    'WinJS/Controls/AppBar/_AppBarPhone',
     'WinJS/Controls/ViewBox'
     ], function (_WinJS) {
     "use strict";
 
-    //Wrapper module
-
     return _WinJS;
 });
 
-        require(['WinJS/Core/_WinJS', 'ui'], function (_WinJS) {
+        require(['WinJS/Core/_WinJS', 'ui-phone'], function (_WinJS) {
             global.WinJS = _WinJS;
             return _WinJS;
         });

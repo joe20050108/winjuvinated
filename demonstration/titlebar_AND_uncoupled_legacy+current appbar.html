@@ -6,7 +6,6 @@
         <link rel="stylesheet" href="../bin/Microsoft.WinJS.4.4/css/ui-dark.css">
         <script src="../bin/Microsoft.WinJS.4.4/js/base.js"></script>
         <script src="../bin/Microsoft.WinJS.4.4/js/ui.js"></script>
-        <link rel="stylesheet" href="style2.css">
         <script>
             WinJS.UI.processAll();
         </script>
@@ -20,6 +19,21 @@
                     <img class="win-titlebar-icon" src="https://64.media.tumblr.com/adbfb4c4dca656aa314d3394a09e5a2c/764880e63d39b93c-38/s1280x1920/806cbf805fec8d05d431d2a22302b3a6a3bd7bbe.png">
                     <div class="win-titlebar-title">Titlebar Example for Electron</div>
                 </div>
+            </div>
+            <div class="win-commandingsurface-actionarea win-appbar-actionarea">
+                <button class="win-disposable win-command">
+                    <span class="win-commandicon">
+                        <span class="win-commandimage win-commandglyph">&#xe700;</span>
+                    </span>
+                    <span class="win-label">control uncoupled appbarbutton</span>
+                </button>
+            </div>
+            <div class="win-appbar" style="margin-top: 200px;">
+                <button class="win-appbar">
+                    <img src="https://th.bing.com/th/id/OIP.STWb-dCaEwa8YWu9hD9wdAHaHa?pid=ImgDet&rs=1">
+                    <label class="win-appbar-label">Reference for legacy appbar idea..</label>
+                    <label class="win-appbar-label">Base(8032), TODO: 8056</label>
+                </button>
             </div>
         </div>
         <div data-win-control="WinJS.UI.SearchBox" data-win-options="{value:'Search'}"></div>

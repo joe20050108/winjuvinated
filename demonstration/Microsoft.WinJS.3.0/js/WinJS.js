@@ -6,9 +6,9 @@
         if (typeof define === 'function' && define.amd) {
             define([], factory);
         } else {
-            global.msWriteProfilerMark && msWriteProfilerMark('WinJS.3.0 3.0.1.winjs.2022.5.20 WinJS.js,StartTM');
+            global.msWriteProfilerMark && msWriteProfilerMark('WinJS.3.0 3.0.1.winjs.2022.5.30 WinJS.js,StartTM');
             factory(global.WinJS);
-            global.msWriteProfilerMark && msWriteProfilerMark('WinJS.3.0 3.0.1.winjs.2022.5.20 WinJS.js,StopTM');
+            global.msWriteProfilerMark && msWriteProfilerMark('WinJS.3.0 3.0.1.winjs.2022.5.30 WinJS.js,StopTM');
         }
     }(function (WinJS) {
 

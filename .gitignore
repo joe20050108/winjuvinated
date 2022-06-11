@@ -8,6 +8,8 @@ xhml/
 microsoft-ui-xaml-main/
 winjs-release-3.0-xenon/
 Windows Library for Javascript Controls Gallery/
+Concepts and Ideas/
+Sample Applications/
 
 *.orig
 *.suo

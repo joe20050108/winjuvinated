@@ -119,7 +119,8 @@ define([
 
     //equivalent function for electron fallback
     function handleColorsChangedElectron() {
-        var uiColor = remote.systemPreferences.getAccentColor();
+        const { systemPreferences } = window.require("@electron/remote");
+        var uiColor = systemPreferences.getAccentColor();
         colors.length = 0;
         colors.push(
             "#" + uiColor,
@@ -171,7 +172,7 @@ define([
         //try to see if we can use electron apis
         try {
             // No WinRT, Electron Remote is present - Use accent colors
-            const { systemPreferences } = window.remote;
+            const { systemPreferences } = window.require("@electron/remote").systemPreferences;
             handleColorsChangedElectron();
         }
         catch(e) {
