@@ -1,5 +1,6 @@
 //loads the CSS for the WinJS titlebar control used for electron
 define([
+    "./TitleBar/_Buttons",
     "require-style!less/electron/styles-titlebar",
     "require-style!less/electron/colors-titlebar",
 ], function() {

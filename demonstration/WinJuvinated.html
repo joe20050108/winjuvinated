@@ -56,6 +56,12 @@
     <body class="win-type-body">
         <div style="margin: 5px; grid-column-start: 1; grid-column-end: 3; display: grid;">
             Inputs
+            <button id="hello" data-win-control="WinJS.UI.TitleButton"
+            data-win-options="{test:'test', callAHandle:'callit', role:'close'}"></button>
+            <div id="titlebar">
+                <button data-win-control="WinJS.UI.TitleButton"
+                data-win-options="{role:'fullscreen'}"></button>
+            </div>
             <button class="win-button">Button</button>
             <button class="win-button win-button-primary">Primary Button</button>
             <input type="range" class="win-slider">

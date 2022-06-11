@@ -67,7 +67,7 @@ require(["require-style!less/styles-appbar"]);
 //              - AppBar constructor configures the _OpenCloseMachine to always fire events on the AppBar element directly.
 //              - AppBar constructor specifies the callbacks that the _OpenCloseMachine should use to setup and execute the _CommandingSurface open and close animations after
 //                the _OpenCloseMachine determines a state transition has completed.
-//              - AppBar constructor passes the _OpenCloseMachine as an argument to the _CommandingSurface constructor and doesn’t keep any references to it.
+//              - AppBar constructor passes the _OpenCloseMachine as an argument to the _CommandingSurface constructor and doesnï¿½t keep any references to it.
 //          - _CommandingSurface is responsible for both, continued communication with, and final the cleanup of, the _OpenCloseMachine
 //              - _CommandingSurface expects a reference to an _OpenCloseMachine in its constructor options.
 //              - Only the _CommandingSurface holds onto a reference to the _OpenCloseMachine, no other object should communicate with the _OpenCloseMachine directly after 
