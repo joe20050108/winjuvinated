@@ -20,7 +20,7 @@ define([
             }
 
             var strings = {
-                get unsupportedPlatform() { return "Title Buttons are only supported on the following platforms: Electron."; },
+                get unsupportedPlatform() { return "Title Buttons are only supported on the following platforms: Electron"; },
             }
             /*
             0: unused
@@ -60,22 +60,6 @@ define([
                 //before we even try to do anything, check to see if the control is even supported..
                 try {
                     const remote = window.require("@electron/remote");
-                    console.log("Electron is supported, will activate control.");
-                    //just following what microsoft does..
-                    this._element = element;
-                    //remember ourselves
-                    this._element.winControl = this;
-    
-                    // Don't blow up if they didn't pass options
-                    if (!options) {
-                        options = {};
-                    }
-                    //set the options
-                    _Control.setOptions(this, options);
-
-                    _createButton();
-                }
-                catch(e) {
                     //just following what microsoft does..
                     this._element = element;
                     //remember ourselves
@@ -89,6 +73,9 @@ define([
                     _Control.setOptions(this, options);
 
                     this._createButton();
+                }
+                catch(e) {
+                    throw new _ErrorFromName("WinJS.UI.TitleButton.UnsupportedPlatform", _Resources._formatString(strings.unsupportedPlatform, "TitleButton"));
                 }
             },
             {

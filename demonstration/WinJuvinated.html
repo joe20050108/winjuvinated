@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
     <head>
@@ -57,7 +58,7 @@
         <div style="margin: 5px; grid-column-start: 1; grid-column-end: 3; display: grid;">
             Inputs
             <button id="hello" data-win-control="WinJS.UI.TitleButton"
-            data-win-options="{test:'test', callAHandle:'callit', role:'close'}"></button>
+            data-win-options="{role:'close'}"></button>
             <div id="titlebar">
                 <button data-win-control="WinJS.UI.TitleButton"
                 data-win-options="{role:'fullscreen'}"></button>
@@ -82,6 +83,7 @@
                 <circle class="radial-bg" cx="8px" cy="8px" r="7px"></circle>
                 <circle class="radial radial-infinite" cx="8px" cy="8px" r="7px"></circle>
             </svg>
+            <button data-win-control="WinJS.UI.TitleButton" data-win-options="{role:'maximize'}"></button>
             <a>Tooltip</a>
             <div data-win-control="WinJS.UI.ToolTip">
                 <button class="win-button">Hello</button>

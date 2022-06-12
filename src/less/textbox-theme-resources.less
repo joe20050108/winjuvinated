@@ -1,0 +1,53 @@
+@import "common-theme-resources.less";
+
+.themeResources(@theme) {
+    .commonThemeResources(@theme);
+
+    .mixin(dark) {
+        @TextControlBackground: @ControlFillColorDefaultBrush;
+@TextControlBackgroundPointerOver: @ControlFillColorSecondaryBrush;
+@TextControlBackgroundFocused: @ControlFillColorInputActiveBrush;
+@TextControlBackgroundDisabled: @ControlFillColorDisabledBrush;
+@TextControlBorderBrushDisabled: @ControlStrokeColorDefaultBrush;
+@TextControlForeground: @TextFillColorPrimaryBrush;
+@TextControlForegroundPointerOver: @TextFillColorPrimaryBrush;
+@TextControlForegroundFocused: @TextFillColorPrimaryBrush;
+@TextControlPlaceholderForeground: @TextFillColorSecondaryBrush;
+@TextControlPlaceholderForegroundPointerOver: @TextFillColorSecondaryBrush;
+@TextControlPlaceholderForegroundFocused: @TextFillColorTertiaryBrush;
+@TextControlPlaceholderForegroundDisabled: @TextFillColorDisabledBrush;
+@TextControlButtonBackgroundPointerOver: @SubtleFillColorSecondaryBrush;
+@TextControlButtonBackgroundPressed: @SubtleFillColorTertiaryBrush;
+@TextControlButtonBorderBrush: @ControlFillColorTransparent;
+@TextControlButtonBorderBrushPointerOver: @ControlFillColorTransparent;
+@TextControlButtonBorderBrushPressed: @ControlFillColorTransparent;
+@TextControlButtonForeground: @TextFillColorSecondaryBrush;
+@TextControlButtonForegroundPointerOver: @TextFillColorSecondaryBrush;
+@TextControlButtonForegroundPressed: @TextFillColorTertiaryBrush;
+    }
+
+    .mixin(light) {
+        @TextControlBackground: @ControlFillColorDefaultBrush;
+@TextControlBackgroundPointerOver: @ControlFillColorSecondaryBrush;
+@TextControlBackgroundFocused: @ControlFillColorInputActiveBrush;
+@TextControlBackgroundDisabled: @ControlFillColorDisabledBrush;
+@TextControlBorderBrushDisabled: @ControlStrokeColorDefaultBrush;
+@TextControlForeground: @TextFillColorPrimaryBrush;
+@TextControlForegroundPointerOver: @TextFillColorPrimaryBrush;
+@TextControlForegroundFocused: @TextFillColorPrimaryBrush;
+@TextControlPlaceholderForeground: @TextFillColorSecondaryBrush;
+@TextControlPlaceholderForegroundPointerOver: @TextFillColorSecondaryBrush;
+@TextControlPlaceholderForegroundFocused: @TextFillColorTertiaryBrush;
+@TextControlPlaceholderForegroundDisabled: @TextFillColorDisabledBrush;
+@TextControlButtonBackgroundPointerOver: @SubtleFillColorSecondaryBrush;
+@TextControlButtonBackgroundPressed: @SubtleFillColorTertiaryBrush;
+@TextControlButtonBorderBrush: @ControlFillColorTransparent;
+@TextControlButtonBorderBrushPointerOver: @ControlFillColorTransparent;
+@TextControlButtonBorderBrushPressed: @ControlFillColorTransparent;
+@TextControlButtonForeground: @TextFillColorSecondaryBrush;
+@TextControlButtonForegroundPointerOver: @TextFillColorSecondaryBrush;
+@TextControlButtonForegroundPressed: @TextFillColorTertiaryBrush;
+    }
+
+    .mixin(@theme);
+}

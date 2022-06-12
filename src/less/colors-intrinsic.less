@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
 @import "button-theme-resources.less";
 @import "combobox-theme-resources.less";
+@import "textbox-theme-resources.less";
 .Colors(@theme) {
     .colorDefinitions(@theme);
 
@@ -336,9 +337,9 @@
     //
     .win-textbox,
     .win-textarea {
-        color: @baseHigh;
-        background-color: @altMediumMid;
-        border-color: @baseMediumMid;
+        color: @TextControlForeground;
+        background-color: @TextControlBackground;
+        border-color: @ControlStrokeColorDefault;
 
         // Hint text color
         // Single colon on -ms not a typo
@@ -347,13 +348,21 @@
         &::-moz-input-placeholder {color: @baseMid;}
 
         &:hover {
-            background-color: @altMid;
-            border-color: @baseMid;
+            color: @TextControlForegroundPointerOver;
+            background-color: @TextControlBackgroundPointerOver;
+            border-color: @ControlStrokeColorDefault;
         }
 
         &:focus {
-            color: @baseBlack;
-            background-color: @baseWhite;
+            color: @TextControlForegroundFocused;
+            background-color: @TextControlBackgroundFocused;
+            border-color: @ControlStrokeColorDefault;
+        }
+
+        &:disabled {
+            color: @TextControlForeground;
+            background-color: @TextControlBackgroundDisabled;
+            border-color: @ControlStrokeColorDefault;
         }
     }
 

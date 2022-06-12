@@ -29,7 +29,7 @@ define([
          .win-textarea:focus,\
          .win-textbox:focus:hover,\
          .win-textarea:focus:hover",
-        [{ name: "border-color", value: _Accents.ColorTypes.accent }]);
+        [{ name: "border-bottom-color", value: _Accents.ColorTypes.accent }]);
 
     // Edge-specific color rule
     _Accents.createAccentRule(
