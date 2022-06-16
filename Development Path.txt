@@ -1,0 +1,33 @@
+DISLAIMER
+THIS IS JUST A RANT TEXT FILE DONT TAKE WHAT I SAY IN HERE EVEN REMOTELY SERIOUSLY
+
+Ideas for the development path of WinJS(WinJuvinated)
+This is a literally a standard text file, but I wrote it in Visual Studio(NOT VSCODE)
+I'm weird sometimes..
+
+Anyways
+WinJS 4.5 -- Some UI components properly redesigned / updated
+	--(No electron)
+	--JUST SOME
+WinJS 4.6 -- Some UI components properly redesigned
+	--To Remove
+		- Electron Accents
+		- Electron Titlebar
+			(These features will be for WinJS 5.0 and will not be in WinJS 4.5 as of now)
+	--Features: 
+		Some UI components updated, but possible no color updates yet
+			Or we might just have the currently redesigned WinUI3 components present
+			and by version 5.0 have them ALL redesigned
+
+WinJS 5.0 -- Full WinUI3 redesign process is completed
+	--Most WinRT things should be able to support electron by this point
+
+WinJS 6.0 -- Xenon Interpreter integration
+	--Xenon is the XAML / XHML to HTML interpreter a developer(me) wrote.
+
+WinJS 7.0 -- Two forks, WinUI3, and "FlexUI" (Codenamed: Potassium?)
+	--FlexUI is an idea
+
+
+DISCLAIMER
+THIS IS JUST A RANT TEXT FILE DONT TAKE WHAT I SAY IN HERE EVEN REMOTELY SERIOUSLY

@@ -2,16 +2,24 @@
   "name": "winjs",
   "title": "Windows Library for JavaScript (WinJS)",
   "description": "WinJS is a set of JavaScript toolkits that allow developers to build applications using HTML/JS/CSS technology.",
-  "version": "4.4.5",
+  "version": "4.4.0",
+  "codename": "Magnesium",
+  "preleaseVersion": "",
   "main": "js/ui.js",
+  "scripts": {
+    "sample_apps": "echo Choose an app please...",
+    "notepad": "electron-forge start"
+  },
   "homepage": "http://try.buildwinjs.com/",
   "author": {
     "name": "Microsoft Corporation and other contributors",
+    "name2":  "Microsoft Corporation, Scout Gas Babaian, and other contributors",
     "url": "https://github.com/winjs/winjs/graphs/contributors"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/winjs/winjs"
+    "url": "https://github.com/winjs/winjs",
+    "url2": "https://github.com/joe20050108/winjuvinated"
   },
   "licenses": [
     {

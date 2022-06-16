@@ -1,0 +1,6 @@
+WinJS 4.5 expected by: 10/22
+WinJS 5.0 -- Full WinUI3 support
+    WinJS 5.1 -- Full electron support and WinRT removal possibly?
+WinJS 6.0 -- Xenon integration(XAML interp)
+WinJS 3.1 -- FlexUI / LazyUI / WinUI3 Basi8c
+    WinJS 3.2 -- Xenon integration(XAML interp)

@@ -224,6 +224,13 @@
             color: @ComboBoxForegroundPointerOver;
         }
 
+        //add focus
+        &:focus {
+            background-color: @ComboBoxBackgroundPressed;
+            border-color: @ComboBoxBorderBrushPressed;
+            color: @ComboBoxForegroundPressed;
+        }
+
         &:disabled {
             color: @ComboBoxForegroundDisabled;
             background-color: @ComboBoxBackgroundDisabled;

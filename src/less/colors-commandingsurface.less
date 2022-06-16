@@ -1,24 +1,34 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
+@import "commandbar-theme-resources.less";
+@import "appbarbutton-theme-resources.less";
+@import "flyout-theme-resources.less";
+@import "common-theme-resources.less";
 
+
+//how many brain cells will it take to be able to use generic.xaml?
+//because i know damn well im GOING to need it to be able to update the overflow area's colors
 #win-commandingsurface {
     .variableDefs(@theme) when not (@theme = highcontrast) {
         .colorDefinitions(@theme);
+        .themeResources(@theme);
 
-        @backgroundColor: @chromeMid;
+        @backgroundColor: @SolidBackgroundFillColorQuarternary;
         @textColorActive: @baseHigh;
-        @commandFocusBorderColor: @baseHigh;
+        @commandFocusBorderColor: @CommandBarForeground;
 
         @overflowButtonEllipsisHoverColor: @baseHigh;
         @overflowButtonEllipsisColor: @baseHigh;
-        @overflowButtonBackground: transparent;
-        @overflowButtonActiveBackground: @listPress;
+        @overflowButtonBackground: @AppBarButtonBackground;
+        @overflowButtonActiveBackground: @AppBarButtonBackgroundPressed;
+        @overflowButtonDisabledBackground: @AppBarButtonBackgroundDisabled;
 
-        @overflowAreaBackgroundColor: @chromeMediumMid;
-        @overflowAreaCommandHoverBackground: @listHover;
+        @overflowAreaBackgroundColor: @SolidBackgroundFillColorQuarternary;
+        @overflowAreaCommandHoverBackground: @AppBarButtonBackgroundPointerOver;
         @overflowAreaCommandActiveBackground: @listPress;
     }
 
     .variableDefs(highcontrast) {
+        .themeResources(@theme);
 
         @backgroundColor: ButtonFace;
         @textColorActive: ButtonText;
@@ -28,6 +38,8 @@
         @overflowButtonEllipsisHoverColor: HighlightText;
         @overflowButtonBackground: ButtonFace;
         @overflowButtonActiveBackground: Highlight;
+        @overflowButtonDisabledBackground: @AppBarButtonBackgroundDisabled;
+
 
         @overflowAreaBackgroundColor: ButtonFace;
         @overflowAreaCommandHoverBackground: Highlight;

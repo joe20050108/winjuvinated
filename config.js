@@ -9,6 +9,7 @@
     var pkg = grunt.file.readJSON("package.json");
     // package.json version contains <major>.<minor>.<patch>. We just want <major>.<minor>
     var majorMinorVersion = pkg.version.split(".").splice(0, 2).join(".");
+    var previewVersion = pkg.preleaseVersion;
     
     config.version = majorMinorVersion;
     config.buildDate = new Date();
@@ -19,7 +20,7 @@
     config.copyright = '/*! Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information. */';
 
     config.testsOutput = config.outputFolder + "tests/";
-    config.targetName = "WinJS." + config.version;
+    config.targetName = "WinJS." + config.version + previewVersion;
     config.desktopFramework = "Microsoft." + config.targetName;
     config.desktopOutput = config.outputFolder + config.desktopFramework + "/";
     config.compiledTsOutput = config.outputFolder + "tsbuild/";

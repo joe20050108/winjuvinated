@@ -10,45 +10,45 @@
         <link rel="stylesheet" href="style2.css">
         <style>
             .radialSize {
-	width: 32px;
-	height: 32px
-}
+	            width: 32px;
+	            height: 32px
+            }
 
-.radial {
-	fill: none;
-	stroke: #0067C0;
-	stroke-width: 2px;
-	stroke-linecap: round;
-	transform-origin: 50% 50%;
-	transform: rotate(-90deg)
-}
+            .radial {
+	            fill: none;
+	            stroke: #0067C0;
+	            stroke-width: 2px;
+	            stroke-linecap: round;
+	            transform-origin: 50% 50%;
+	            transform: rotate(-90deg)
+            }
 
-.radial-bg {
-	fill: none;
-	stroke: rgba(0, 0, 0, 0.18);
-	stroke-width: 2px;
-	stroke-linecap: round;
-}
+            .radial-bg {
+	            fill: none;
+	            stroke: rgba(0, 0, 0, 0.18);
+	            stroke-width: 2px;
+	            stroke-linecap: round;
+            }
 
-.radial-infinite {
-	animation: spin-infinite 2s linear infinite
-}
-@keyframes spin-infinite {
-	0% {
-		stroke-dasharray: 0.01px 43.97px;
-		transform: rotate(0deg)
-	}
+            .radial-infinite {
+	            animation: spin-infinite 2s linear infinite
+            }
+            @keyframes spin-infinite {
+	            0% {
+		            stroke-dasharray: 0.01px 43.97px;
+		            transform: rotate(0deg)
+	            }
 
-	50% {
-		stroke-dasharray: 21.99px 21.99px;
-		transform: rotate(450deg)
-	}
+	            50% {
+		            stroke-dasharray: 21.99px 21.99px;
+		            transform: rotate(450deg)
+	            }
 
-	100% {
-		stroke-dasharray: .01px 43.97px;
-		transform: rotate(1080deg)
-	}
-}
+	            100% {
+		            stroke-dasharray: .01px 43.97px;
+		            transform: rotate(1080deg)
+	            }
+            }
         </style>
         <script>
             WinJS.UI.processAll();
@@ -193,7 +193,8 @@
             data-win-options="{id:'secondary1',
             type:'button',
             label:'Secondary1',
-            section:'secondary'}"></button>
+            section:'secondary',
+            icon:'placeholder'}"></button>
     <div data-win-control="WinJS.UI.AppBarCommand"
          data-win-options="{ id: 'list',
          type: 'content',
@@ -241,4 +242,28 @@
             }"></button>
         </div>
     </body>
+    <script>
+        `            <svg id="_progressControl" class="radialSize" viewBox="0 0 16 16">
+                <circle class="radial-bg" cx="8px" cy="8px" r="7px"></circle>
+                <circle class="radial radial-infinite" cx="8px" cy="8px" r="7px"></circle>
+            </svg>`
+            //svg how-to from hell itself
+            const svgNs = "http://www.w3.org/2000/svg";
+const shape = document.createElementNS(svgNs, "circle");
+shape.setAttribute("class","radial radial-infinite");
+shape.setAttributeNS(null, "cx", "8px");
+shape.setAttributeNS(null, "cy", "8px");
+shape.setAttributeNS(null, "r", "7px");
+const bg = document.createElementNS("http://www.w3.org/2000/svg","circle");
+bg.setAttribute("cx","8px");
+bg.setAttribute("cy","8px");
+bg.setAttribute("r","7px");
+bg.setAttribute("class", "radial-bg");
+var x = document.createElementNS(svgNs, "svg");
+x.setAttribute("class","radialSize");
+x.setAttribute("viewBox", "0 0 16 16");
+x.appendChild(shape);
+x.appendChild(bg);
+document.body.appendChild(x);
+    </script>
 </html>

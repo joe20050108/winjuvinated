@@ -1,5 +1,7 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
 @import "flyout-theme-resources.less";
+@import "appbarbutton-theme-resources.less";
+@import "commandbar-theme-resources.less";
 
 #win-overlay {
     .variableDefs(@theme) when not (@theme = highcontrast) {
@@ -66,44 +68,46 @@
 
         div.win-command,
         button.win-command {
-            border-color: transparent;
-            background-color: transparent;
+            border-color: @AppBarButtonBorderBrush;
+            background-color: @AppBarButtonBackground;
+            color: @AppBarButtonForeground;
         }
 
         div.win-command:hover:active,
         button.win-command:hover:active {
-            border-color: transparent;
+            border-color: @AppBarButtonBorderBrushPointerOver;
         }
 
         button:enabled.win-command.win-keyboard:focus,
         div.win-command.win-keyboard:focus,
         button:enabled.win-command.win-command.win-keyboard:hover:focus,
         div.win-command.win-command.win-keyboard:hover:focus {
-            border-color: @borderColor;
+            border-color: @AppBarButtonBorderBrush;
         }
 
         .win-commandimage {
-            color: @textColor;
+            color: @AppBarButtonForeground;
         }
 
         button.win-command.win-command:enabled:hover:active,
         button.win-command.win-command:enabled:active {
-            background-color: @commandActiveBackgroundColor;
-            color: @textColorActive;
+            background-color: @AppBarButtonBackgroundPressed;
+            border-color: @AppBarButtonBorderBrushPressed;
+            color: @AppBarButtonForegroundPressed;
         }
 
         button:enabled:hover:active .win-commandimage,
         button:enabled:active .win-commandimage {
-            color: @textColorActive;
+            color: @AppBarButtonForegroundPressed;
         }
 
         button:disabled .win-commandimage,
         button:disabled:active .win-commandimage {
-            color: @textColorDisabled;
+            color: @AppBarButtonForegroundDisabled;
         }
 
         button .win-label {
-            color: @textColor;
+            color: @AppBarButtonForeground;
         }
 
         button[aria-checked=true]:enabled .win-label,
@@ -134,8 +138,8 @@
         }
 
         button.win-command:enabled:-ms-keyboard-active {
-            background-color: @commandActiveBackgroundColor;
-            color: @textColor;
+            background-color: @AppBarButtonBackgroundPressed;
+            color: @AppBarButtonForegroundPressed;
         }
 
         button[aria-checked=true].win-command:enabled:hover:active {
@@ -144,13 +148,14 @@
 
         button.win-command:disabled,
         button.win-command:disabled:hover:active {
-            background-color: transparent;
-            border-color: transparent;
+            background-color: @AppBarButtonBackgroundDisabled;
+            border-color: @AppBarButtonBorderBrushDisabled;
+            color: @AppBarButtonForegroundDisabled;
         }
 
         button.win-command:disabled .win-label,
         button.win-command:disabled:active .win-label {
-            color: @textColorDisabled;
+            color: @AppBarButtonForegroundDisabled;
         }
 
         &.win-navbar, .win-navbar {
@@ -289,11 +294,12 @@
         }
 
         button.win-command:enabled:hover {
-            background-color: @commandHoverBackgroundColor;
-            color: @textColorHover;
+            background-color: @AppBarButtonBackgroundPointerOver;
+            color: @AppBarButtonForegroundPointerOver;
+            border-color: @AppBarButtonBorderBrushPointerOver;
 
             .win-commandglyph {
-                color: @textColorHover;
+                color: @AppBarButtonForegroundPointerOver;
             }
         }
 
