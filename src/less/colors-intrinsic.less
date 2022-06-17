@@ -1,20 +1,13 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
-@import "button-theme-resources.less";
-@import "combobox-theme-resources.less";
-@import "textbox-theme-resources.less";
 .Colors(@theme) {
     .colorDefinitions(@theme);
-
-    //WinUI
-    //currently used for: win-button
-    .themeResources(@theme);
 
     //
     // Body
     //
     .bodyStyle(@theme) {
         .colorDefinitions(@theme);
-        background-color: @SolidBackgroundFillColorBase;
+        background-color: @altHigh;
         color: @baseHigh;
     }
 
@@ -169,9 +162,9 @@
     // Push button
     //
     .win-button {
-        color: @ButtonForeground;
-        background-color: @ButtonBackground;
-        border-color: @ButtonBorderBrush;
+        color: @baseHigh;
+        background-color: @baseLow;
+        border-color: transparent;
 
         &.win-button-primary {
             color: #fff;
@@ -179,23 +172,19 @@
 
         &:hover,
         &.win-button-primary:hover {
-            color: @ButtonForegroundPointerOver;
-            border-color: @ButtonBorderBrushPointerOver;
-            background-color: @ButtonBackgroundPointerOver;
+            border-color: @baseMediumMid;
         }
 
         &:active,
         &.win-button-primary:active {
-            background-color: @ButtonBackgroundPressed;
-            color: @ButtonForegroundPressed;
-            border-color: @ButtonBorderBrushPressed;
+            background-color: @baseMediumMid;
         }
 
         &:disabled,
         &.win-button-primary:disabled {
-            color: @ButtonForegroundDisabled;
-            background-color: @ButtonBackgroundDisabled;
-            border-color: @ButtonBorderBrushDisabled;
+            color: @baseLow;
+            background-color: @baseLow;
+            border-color: transparent;
         }
     }
 
@@ -203,43 +192,27 @@
     // Select
     //
     .win-dropdown {
-        color: @ComboBoxForeground;
-        background-color: @ComboBoxBackground;
-        border-color: @ComboBoxBorderBrush;
+        color: @baseHigh;
+        background-color: @baseLow;
+        border-color: @baseMediumMid;
 
-        &:active {
-            background-color: @ComboBoxBackgroundPressed;
-            color: @ComboBoxForegroundPressed;
-            border-color: @ComboBoxBorderBrushPressed;
-        }
         &::-ms-expand {
-            background-color: @ComboBoxBackgroundPressed;
-            color: @ComboBoxForegroundPressed;
-            border-color: @ComboBoxBorderBrushPressed;
+            color: @baseMediumHigh;
+            background-color: transparent;
         }
 
         &:hover {
-            background-color: @ComboBoxBackgroundPointerOver;
-            border-color: @ComboBoxBorderBrushPointerOver;
-            color: @ComboBoxForegroundPointerOver;
-        }
-
-        //add focus
-        &:focus {
-            background-color: @ComboBoxBackgroundPressed;
-            border-color: @ComboBoxBorderBrushPressed;
-            color: @ComboBoxForegroundPressed;
+            background-color: @chromeMediumMid;
+            border-color: @baseMid;
         }
 
         &:disabled {
-            color: @ComboBoxForegroundDisabled;
-            background-color: @ComboBoxBackgroundDisabled;
-            border-color: @ComboBoxBorderBrushDisabled;
+            color: @baseLow;
+            background-color: @baseLow;
         }
         &:disabled::-ms-expand {
-            color: @ComboBoxForegroundDisabled;
-            background-color: @ComboBoxBackgroundDisabled;
-            border-color: @ComboBoxBorderBrushDisabled;
+            color: @baseLow;
+            border-color: @baseLow;
         }
     }
 
@@ -344,9 +317,9 @@
     //
     .win-textbox,
     .win-textarea {
-        color: @TextControlForeground;
-        background-color: @TextControlBackground;
-        border-color: @ControlStrokeColorDefault;
+        color: @baseHigh;
+        background-color: @altMediumMid;
+        border-color: @baseMediumMid;
 
         // Hint text color
         // Single colon on -ms not a typo
@@ -355,21 +328,13 @@
         &::-moz-input-placeholder {color: @baseMid;}
 
         &:hover {
-            color: @TextControlForegroundPointerOver;
-            background-color: @TextControlBackgroundPointerOver;
-            border-color: @ControlStrokeColorDefault;
+            background-color: @altMid;
+            border-color: @baseMid;
         }
 
         &:focus {
-            color: @TextControlForegroundFocused;
-            background-color: @TextControlBackgroundFocused;
-            border-color: @ControlStrokeColorDefault;
-        }
-
-        &:disabled {
-            color: @TextControlForeground;
-            background-color: @TextControlBackgroundDisabled;
-            border-color: @ControlStrokeColorDefault;
+            color: @baseBlack;
+            background-color: @baseWhite;
         }
     }
 

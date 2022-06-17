@@ -1,12 +1,7 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved. Licensed under the MIT License. See License.txt in the project root for license information.
-@import "flyout-theme-resources.less";
-@import "appbarbutton-theme-resources.less";
-@import "commandbar-theme-resources.less";
-
 #win-overlay {
     .variableDefs(@theme) when not (@theme = highcontrast) {
         .colorDefinitions(@theme);
-        .themeResources(@theme);
 
         @accentColorDefaultOpacity: @listSelectRestOpacity;
         @accentColorHoverOpacity: @listSelectHoverOpacity;
@@ -22,13 +17,11 @@
         @appbarBorderColor: @chromeMid;
         @commandHoverBackgroundColor: @listHover;
         @commandActiveBackgroundColor: @listPress;
-        @flyoutBackgroundColor: @FlyoutPresenterBackground;
+        @flyoutBackgroundColor: @altHigh;
         @menuCommandActiveBackgroundColor: @listPress;
         @menuCommandHoverBackgroundColor: @listHover;
         @menuCommandDisabledColor: @baseLow;
-        @settingsFlyoutBackgroundColor: @FlyoutPresenterBackground;
-
-        @flyoutBorderColor: @FlyoutBorderThemeBrush;
+        @settingsFlyoutBackgroundColor: @altHigh;
     }
 
     .variableDefs(highcontrast) {
@@ -51,8 +44,6 @@
         @menuCommandHoverBackgroundColor: Highlight;
         @menuCommandDisabledColor: GrayText;
         @settingsFlyoutBackgroundColor: ButtonFace;
-        //no clue what this even does..
-        @flyoutBorderColor: Highlight;
     }
 
     .stylesForTheme(@theme) {
@@ -68,46 +59,44 @@
 
         div.win-command,
         button.win-command {
-            border-color: @AppBarButtonBorderBrush;
-            background-color: @AppBarButtonBackground;
-            color: @AppBarButtonForeground;
+            border-color: transparent;
+            background-color: transparent;
         }
 
         div.win-command:hover:active,
         button.win-command:hover:active {
-            border-color: @AppBarButtonBorderBrushPointerOver;
+            border-color: transparent;
         }
 
         button:enabled.win-command.win-keyboard:focus,
         div.win-command.win-keyboard:focus,
         button:enabled.win-command.win-command.win-keyboard:hover:focus,
         div.win-command.win-command.win-keyboard:hover:focus {
-            border-color: @AppBarButtonBorderBrush;
+            border-color: @borderColor;
         }
 
         .win-commandimage {
-            color: @AppBarButtonForeground;
+            color: @textColor;
         }
 
         button.win-command.win-command:enabled:hover:active,
         button.win-command.win-command:enabled:active {
-            background-color: @AppBarButtonBackgroundPressed;
-            border-color: @AppBarButtonBorderBrushPressed;
-            color: @AppBarButtonForegroundPressed;
+            background-color: @commandActiveBackgroundColor;
+            color: @textColorActive;
         }
 
         button:enabled:hover:active .win-commandimage,
         button:enabled:active .win-commandimage {
-            color: @AppBarButtonForegroundPressed;
+            color: @textColorActive;
         }
 
         button:disabled .win-commandimage,
         button:disabled:active .win-commandimage {
-            color: @AppBarButtonForegroundDisabled;
+            color: @textColorDisabled;
         }
 
         button .win-label {
-            color: @AppBarButtonForeground;
+            color: @textColor;
         }
 
         button[aria-checked=true]:enabled .win-label,
@@ -131,15 +120,14 @@
             /* Put a 1px border on this element to make it larger and then set its top/left to -1px.*/
             border-width: 1px;
             border-style: solid;
-            //WinUI update to toggle(FINALLY)
-            border-radius: 6px;
             top: -1px;
             left: -1px;
+            border-radius: 6px;
         }
 
         button.win-command:enabled:-ms-keyboard-active {
-            background-color: @AppBarButtonBackgroundPressed;
-            color: @AppBarButtonForegroundPressed;
+            background-color: @commandActiveBackgroundColor;
+            color: @textColor;
         }
 
         button[aria-checked=true].win-command:enabled:hover:active {
@@ -148,14 +136,13 @@
 
         button.win-command:disabled,
         button.win-command:disabled:hover:active {
-            background-color: @AppBarButtonBackgroundDisabled;
-            border-color: @AppBarButtonBorderBrushDisabled;
-            color: @AppBarButtonForegroundDisabled;
+            background-color: transparent;
+            border-color: transparent;
         }
 
         button.win-command:disabled .win-label,
         button.win-command:disabled:active .win-label {
-            color: @AppBarButtonForegroundDisabled;
+            color: @textColorDisabled;
         }
 
         &.win-navbar, .win-navbar {
@@ -214,12 +201,10 @@
 
         &.win-flyout, .win-flyout {
             background-color: @flyoutBackgroundColor;
-            border-color: @flyoutBorderColor;
         }
 
         .win-settingsflyout {
             background-color: @settingsFlyoutBackgroundColor;
-            border-color: @flyoutBorderColor;
         }
 
         &.win-menu button, .win-menu button {
@@ -294,12 +279,11 @@
         }
 
         button.win-command:enabled:hover {
-            background-color: @AppBarButtonBackgroundPointerOver;
-            color: @AppBarButtonForegroundPointerOver;
-            border-color: @AppBarButtonBorderBrushPointerOver;
+            background-color: @commandHoverBackgroundColor;
+            color: @textColorHover;
 
             .win-commandglyph {
-                color: @AppBarButtonForegroundPointerOver;
+                color: @textColorHover;
             }
         }
 
