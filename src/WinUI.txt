@@ -8,4 +8,5 @@ NavBarCommand: Colors: NO | Styles: YES
 NavBar: Styles & Colors: NO, OverflowBTN: NO!
 ContentDialog: Colors: NO(Flyout overflowed into) | Styles: NO NO NO
 Flyout: Colors: YES | Styles: YES
-4.5 goal: Finish appbar colors, navbarcommand colors, content dialog colors AND styles
+
+Version 5.0: Full WinUI3
