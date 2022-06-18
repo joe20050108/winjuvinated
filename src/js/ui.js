@@ -32,6 +32,7 @@ define([
     'WinJS/Controls/AppBar',
     //Electron controls
     "WinJS/Controls/ElectronControls",
+    "WinJS/Controls/WaterMark",
     ], function (_WinJS) {
     "use strict";
 
